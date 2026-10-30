@@ -1,0 +1,75 @@
+# 待修复问题与下一步整改
+
+更新时间：2026-08-23
+
+本文只保留尚未关闭的问题。已完成内容见[项目状态总览](../status.md)，不可破坏的架构约束见[长期设计总览](../architecture/long-term-design.md)。历史问题不在本文重复记录。
+
+## P0：发布与生产基线
+
+### P0-1 容器化集成测试尚未在本机闭环
+
+- 当前：CI 已执行 Docker 检查，并通过 `scripts/check-integration-test-results.mjs` 强制确认 PostgreSQL、Redis、Flowable、Flyway、RLS 和 HTTP 安全测试没有缺失或跳过；本机没有 Docker，因此本地报告不能作为发布验收。
+- 验收：发布分支完整 `mvn verify` 和集成测试通过，并归档 Surefire、JaCoCo、SpotBugs 报告。
+
+### P0-2 生产可观测性与流程审计仍未完整闭环
+
+- 当前：已有 Trace ID、结构化日志、健康检查、基础 Agent 指标、状态历史、恢复决策和人工重试操作账本。
+- 缺口：Prometheus 查询、告警、失败运行列表、流程发起/领取/审批/驳回/转办/终止/规则命中等操作还未统一接入审计查询。
+- 验收：可按租户、流程实例、AgentRun、Attempt、操作人和 Trace ID 定位一次失败，并回放关键状态变化。
+
+## P1：隔离、可靠性与契约
+
+### P1-1 Flowable 内部表 RLS 需要真实版本验证
+
+- 当前：V31 会对迁移时已存在且带 `TENANT_ID_` 的 Flowable 表启用强制 RLS；应用层租户过滤仍保留。
+- 缺口：需要在真实 Flowable 表集合上逐表确认租户字段、系统 Worker 授权和跨租户负面场景。
+- 验收：无可信上下文默认拒绝；平台管理员和系统 Worker 经过显式授权；跨租户读写全部失败。
+
+### P1-2 OpenAPI 响应契约仍需细化
+
+- 当前：公开路由已有覆盖、lint 和兼容性门禁。
+- 缺口：部分接口仍使用通用 `ApiResponse`，错误码、分页、权限要求和前端类型尚未完全从 DTO 契约生成。
+- 验收：核心接口的请求、成功响应、错误响应、分页和权限要求可由 OpenAPI 直接验证。
+
+### P1-3 Agent 状态恢复与多步骤 Checkpoint 尚未完成
+
+- 当前：已有 Attempt 隔离、租约心跳、`SKIP LOCKED`、随机抖动、旧 Attempt 迟到结果保护、失败分类和人工重试。
+- 缺口：Worker 强杀、心跳失败、多步骤 Checkpoint 恢复、取消/暂停/恢复和跨实例压力测试仍需补齐。
+- 验收：租约失效或 Worker 被杀后能从最后完整 Checkpoint 恢复；旧 Attempt 不能覆盖新 Attempt；终态操作幂等。
+
+### P1-4 结果策略与 Agent 运行规则仍需租户化
+
+- 当前：已支持 Schema 校验、空结果、部分结果、业务拒绝、内容过滤和显式 `resultStatus`，未通过策略不会恢复 Flowable。
+- 缺口：证据约束、Guardrail、租户业务规则、成本预算和人工确认尚未纳入版本化 Agent 契约。
+- 验收：只有通过结构、业务、证据和 Guardrail 的结果才能推进流程，规则版本可追溯。
+
+### P1-5 Provider 出站安全仍需纵深治理
+
+- 当前：默认 HTTPS、超时、响应大小限制及常见 IPv4 内网地址拒绝已存在；开发环境可显式放行本地 HTTP。
+- 缺口：IPv6 ULA、CGNAT、保留地址、云元数据地址、DNS Rebinding、私有 Provider 审批和统一出站网关仍需完善。
+- 验收：未授权私网、异常端口、DNS 重绑定和元数据地址全部拒绝；授权私有 Provider 有明确审批和审计。
+
+### P1-6 租户与 Provider 公平调度仍需跨实例配额
+
+- 当前：Worker 已有有界线程池、队列和数据库层租户并发上限，默认每租户最多 2 个运行中任务。
+- 缺口：Provider 配额、跨实例一致的租户/Provider 令牌、拒绝与积压指标、动态配额和优先级调度尚未完成。
+- 验收：单一租户或慢 Provider 不能长期占满全部执行资源，跨实例压力测试下无无界线程、连接和重复领取。
+
+### P1-7 核心服务与查询仓储仍偏大
+
+- 当前：运维命令仓储已从 Worker 执行仓储拆出，参与人协调和完成事件已有独立边界。
+- 缺口：`JdbcAgentRunExecutionRepository`、`AgentRunWorkerServiceImpl`、Flowable 查询/运行服务仍混合 SQL、映射和部分业务编排。
+- 验收：查询、命令、映射、状态决策和持久化职责分离；领域规则不复制到 JDBC；核心状态机均有领域测试。
+
+### P1-8 核心覆盖率和故障集成测试低于长期目标
+
+- 当前：JaCoCo 已配置真实 `check`，当前阈值是保守基线；单元测试、架构测试和部分 PostgreSQL/Flowable 集成测试已存在。
+- 缺口：核心模块逐步达到 60% 以上，Agent 完成事件、RLS、租约、重复消息、事务回滚和 Provider 兼容性还需更多真实环境测试。
+- 验收：关键安全、租约、状态机、恢复和流程推进路径达到更高覆盖率，不能只用 Mock 证明闭环。
+
+## 暂不列入问题的已完成项
+
+- Provider 能力契约、脱敏错误摘要、恢复决策账本、人工重试操作账本已落地。
+- Agent 工具注册、租户授权、输入 Schema、幂等键、执行审计和只读业务工具已落地。
+- OpenAPI lint、路由覆盖、兼容性检查、Checkstyle、SpotBugs、JaCoCo 和 ArchUnit 已接入质量门禁。
+- Token Cookie、CSRF、RLS 基础策略、Attempt 复合约束和完成事件幂等链路已完成首版。

@@ -1,0 +1,37 @@
+.access-workspace {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.access-toolbar {
+  min-width: 0;
+  align-items: center;
+}
+
+.access-toolbar .filter-form--members {
+  width: min(100%, 510px);
+  flex: 0 1 510px;
+  grid-template-columns: minmax(220px, 1fr) max-content;
+}
+
+.access-table {
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 840px) {
+  .access-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .access-toolbar .filter-form--members {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .access-toolbar > .el-button {
+    width: 100%;
+    margin-left: 0;
+  }
+}

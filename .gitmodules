@@ -1,0 +1,8 @@
+[submodule "workflow-agent-service"]
+	path = workflow-agent-service
+	url = https://github.com/illuseahashmap/workflow-agent-service.git
+	branch = main
+[submodule "workflow-agent-web"]
+	path = workflow-agent-web
+	url = https://github.com/illuseahashmap/workflow-agent-web.git
+	branch = main

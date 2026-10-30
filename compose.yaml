@@ -1,0 +1,72 @@
+name: workflow-agent
+
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: workflow_agent
+      POSTGRES_USER: workflow_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-workflow_agent}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workflow_agent -d workflow_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+  redis:
+    image: redis:8.8.1-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis-data:/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      WORKFLOW_DB_URL: jdbc:postgresql://postgres:5432/workflow_agent
+      WORKFLOW_DB_USERNAME: workflow_agent
+      WORKFLOW_DB_PASSWORD: ${POSTGRES_PASSWORD:-workflow_agent}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      WORKFLOW_MASTER_KEY_BASE64: ${WORKFLOW_MASTER_KEY_BASE64}
+      WORKFLOW_AUTH_TOKEN_SECRET: ${WORKFLOW_AUTH_TOKEN_SECRET}
+      WORKFLOW_BOOTSTRAP_ADMIN_ENABLED: "true"
+      WORKFLOW_BOOTSTRAP_ADMIN_USERNAME: ${WORKFLOW_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      WORKFLOW_BOOTSTRAP_ADMIN_PASSWORD: ${WORKFLOW_BOOTSTRAP_ADMIN_PASSWORD}
+      WORKFLOW_BOOTSTRAP_ADMIN_DISPLAY_NAME: Local Administrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    ports:
+      - "8080:8080"
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "5174:80"
+
+volumes:
+  postgres-data:
+  redis-data:
