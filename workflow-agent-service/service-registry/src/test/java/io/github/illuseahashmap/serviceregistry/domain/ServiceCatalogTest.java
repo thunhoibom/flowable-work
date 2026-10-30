@@ -2,6 +2,7 @@ package io.github.illuseahashmap.serviceregistry.domain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,36 @@ class ServiceCatalogTest {
         assertEquals("orderId", view.publishedInputParameters().getFirst().name());
         assertEquals(HttpMethod.POST, view.publishedMethod());
         assertEquals("HTTP_ERROR", view.publishedBpmnErrorCode());
+    }
+
+    @Test
+    void deleteOperationRemovesTheDraftAndKeepsThePublishedSnapshot() {
+        var catalog = new InMemoryServiceCatalog();
+        catalog.saveService("crm", "CRM");
+        catalog.saveOperation("crm", operation("https://old.example"));
+        catalog.publish("crm");
+
+        catalog.deleteOperation("crm", "createLead");
+
+        assertTrue(catalog.find("crm").orElseThrow().operations().isEmpty());
+        assertEquals("https://old.example", catalog.published("crm", "createLead").orElseThrow().urlTemplate());
+        catalog.publish("crm");
+        assertTrue(catalog.published("crm", "createLead").isEmpty());
+    }
+
+    @Test
+    void deleteServiceRemovesTheDraftAndThePublication() {
+        var catalog = new InMemoryServiceCatalog();
+        catalog.saveService("crm", "CRM");
+        catalog.saveOperation("crm", operation("https://old.example"));
+        catalog.publish("crm");
+
+        catalog.deleteService("crm");
+
+        assertTrue(catalog.find("crm").isEmpty());
+        assertTrue(catalog.published("crm", "createLead").isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> catalog.deleteService("crm"));
+        assertThrows(IllegalArgumentException.class, () -> catalog.deleteOperation("crm", "createLead"));
     }
 
     private static PublishedOperation operation(String url) {

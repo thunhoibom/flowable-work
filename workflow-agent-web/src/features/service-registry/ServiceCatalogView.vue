@@ -24,6 +24,7 @@ const creating = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
 const createVisible = ref(false)
+const editorVisible = ref(false)
 const query = ref('')
 const selectedKey = ref('')
 const editingKey = ref<string | null>(null)
@@ -63,10 +64,10 @@ async function confirmDiscard() {
 async function refresh(prefer?: { serviceKey?: string; operationKey?: string }) {
   loading.value = true
   try {
-    services.value = await serviceCatalogApi.list()
+    services.value = (await serviceCatalogApi.list()).filter((service) => service.serviceKey)
+    const preferred = prefer?.serviceKey || selectedKey.value
     const service =
-      services.value.find((item) => item.serviceKey === (prefer?.serviceKey || selectedKey.value)) ||
-      services.value[0]
+      services.value.find((item) => preferred && item.serviceKey === preferred) || services.value[0]
     if (!service) {
       selectedKey.value = ''
       loadNew()
@@ -91,20 +92,73 @@ async function selectService(serviceKey: string) {
   if (serviceKey === selectedKey.value) return
   if (!(await confirmDiscard())) return
   selectedKey.value = serviceKey
+  editorVisible.value = false
   loadNew()
 }
 
 async function selectOperation(operationKey: string) {
-  if (operationKey === editingKey.value) return
+  if (editorVisible.value && operationKey === editingKey.value) return
   if (!(await confirmDiscard())) return
   const operation = selectedService.value?.operations.find((item) => item.operationKey === operationKey)
-  if (operation) loadOperation(operation)
+  if (!operation) return
+  loadOperation(operation)
+  editorVisible.value = true
 }
 
 async function addOperation() {
-  if (editingKey.value === null && !dirty.value) return
+  if (editorVisible.value && editingKey.value === null && !dirty.value) return
   if (!(await confirmDiscard())) return
   loadNew()
+  editorVisible.value = true
+}
+
+async function closeEditor(done?: () => void) {
+  if (!(await confirmDiscard())) return
+  editorVisible.value = false
+  loadNew()
+  done?.()
+}
+
+async function removeOperation(operationKey: string) {
+  const confirmed = await confirmAction(
+    `Xóa thao tác “${operationKey}”? Bản đã phát hành vẫn giữ thao tác này cho đến lần phát hành tiếp theo.`,
+    'Xóa thao tác',
+    { type: 'warning', confirmButtonText: 'Xóa', cancelButtonText: 'Hủy' },
+  )
+  if (!confirmed) return
+  const serviceKey = selectedKey.value
+  try {
+    await serviceCatalogApi.deleteOperation(serviceKey, operationKey)
+    if (editingKey.value === operationKey) {
+      editorVisible.value = false
+      loadNew()
+    }
+    await refresh({ serviceKey })
+    ElMessage.success('Đã xóa thao tác')
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error))
+  }
+}
+
+async function removeService() {
+  const service = selectedService.value
+  if (!service?.serviceKey) return
+  const confirmed = await confirmAction(
+    `Xóa dịch vụ “${service.name}”? Những lần chạy sau sẽ không còn gọi được dịch vụ này.`,
+    'Xóa dịch vụ',
+    { type: 'warning', confirmButtonText: 'Xóa', cancelButtonText: 'Hủy' },
+  )
+  if (!confirmed) return
+  try {
+    await serviceCatalogApi.deleteService(service.serviceKey)
+    editorVisible.value = false
+    selectedKey.value = ''
+    loadNew()
+    await refresh()
+    ElMessage.success('Đã xóa dịch vụ')
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error))
+  }
 }
 
 function openCreate() {
@@ -219,25 +273,42 @@ onMounted(() => {
             <h3>{{ selectedService.name }}</h3>
             <p>{{ selectedService.serviceKey }}</p>
           </div>
-          <el-button data-action="publish" type="primary" :loading="publishing" @click="publishService">
-            Phát hành
-          </el-button>
+          <div class="catalog-detail__actions">
+            <el-button data-action="delete-service" @click="removeService">Xóa dịch vụ</el-button>
+            <el-button data-action="publish" type="primary" :loading="publishing" @click="publishService">
+              Phát hành
+            </el-button>
+          </div>
         </header>
         <OperationTable
           :operations="selectedService.operations"
-          :selected-operation-key="editingKey || ''"
+          :selected-operation-key="editorVisible ? editingKey || '' : ''"
           @select="selectOperation"
           @add="addOperation"
-        />
-        <OperationEditor
-          v-model="draft"
-          :operation-key-locked="editingKey !== null"
-          :secret-present="secretPresent"
-          :saving="saving"
-          @save="saveOperation"
+          @remove="removeOperation"
         />
       </section>
     </div>
+
+    <el-dialog
+      v-if="editorVisible"
+      class="catalog-operation-dialog"
+      :model-value="true"
+      :title="editingKey ? 'Sửa thao tác' : 'Thêm thao tác'"
+      width="min(760px, calc(100vw - 32px))"
+      :before-close="closeEditor"
+    >
+      <OperationEditor
+        v-model="draft"
+        :operation-key-locked="editingKey !== null"
+        :secret-present="secretPresent"
+        :saving="saving"
+        @save="saveOperation"
+      />
+      <template #footer>
+        <el-button @click="closeEditor()">Hủy</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-if="createVisible" v-model="createVisible" title="Tạo dịch vụ" width="480px">
       <el-form label-position="top">
@@ -282,14 +353,29 @@ onMounted(() => {
   gap: 16px;
 }
 
+.catalog-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .catalog-detail h3,
 .catalog-detail p {
   margin: 0;
 }
 
+.catalog-detail h3 {
+  font-size: 22px;
+}
+
 .catalog-detail header p {
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: 15px;
+}
+
+.service-catalog {
+  font-size: 15px;
 }
 
 @media (max-width: 959px) {

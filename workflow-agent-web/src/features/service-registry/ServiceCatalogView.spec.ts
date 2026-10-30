@@ -11,6 +11,8 @@ vi.mock('./api', () => ({
     create: vi.fn(),
     saveOperation: vi.fn(),
     publish: vi.fn(),
+    deleteOperation: vi.fn(),
+    deleteService: vi.fn(),
   },
 }))
 
@@ -92,6 +94,8 @@ describe('ServiceCatalogView', () => {
     vi.mocked(serviceCatalogApi.create).mockResolvedValue()
     vi.mocked(serviceCatalogApi.saveOperation).mockResolvedValue()
     vi.mocked(serviceCatalogApi.publish).mockResolvedValue()
+    vi.mocked(serviceCatalogApi.deleteOperation).mockResolvedValue()
+    vi.mocked(serviceCatalogApi.deleteService).mockResolvedValue()
     vi.mocked(confirmAction).mockReset()
     vi.mocked(confirmAction).mockResolvedValue(false)
     vi.mocked(ElMessage.warning).mockReset()
@@ -101,6 +105,7 @@ describe('ServiceCatalogView', () => {
     const wrapper = mountView()
     await flushPromises()
     await wrapper.get('button[data-operation="createLead"]').trigger('click')
+    await flushPromises()
 
     expect(wrapper.findAll('input').some((input) => input.element.value === '{"sku":1}')).toBe(true)
     expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).disabled).toBe(true)
@@ -112,10 +117,26 @@ describe('ServiceCatalogView', () => {
   it('shows the parameter editors under the operation form', async () => {
     const wrapper = mountView()
     await flushPromises()
+    expect(wrapper.text()).not.toContain('Đầu vào')
+    await wrapper.get('[data-action="add-operation"]').trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('Đầu vào')
     expect(wrapper.text()).toContain('Thêm đầu vào')
     expect(wrapper.text()).toContain('Đầu ra')
     expect(wrapper.text()).toContain('Thêm đầu ra')
+  })
+
+  it('ignores a service that has no key', async () => {
+    vi.mocked(serviceCatalogApi.list).mockResolvedValue([
+      { serviceKey: '', name: '', operations: [] },
+      { serviceKey: 'crm', name: 'CRM', operations: [publishedOperation] },
+    ])
+    vi.mocked(confirmAction).mockResolvedValue(true)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-action="delete-service"]').trigger('click')
+    await flushPromises()
+    expect(serviceCatalogApi.deleteService).toHaveBeenCalledWith('crm')
   })
 
   it('shows an empty catalog after loading', async () => {
@@ -137,6 +158,7 @@ describe('ServiceCatalogView', () => {
     const wrapper = mountView()
     await flushPromises()
     await wrapper.get('[data-action="add-operation"]').trigger('click')
+    await flushPromises()
     await wrapper.get('[data-field="operation-key"]').setValue('createLead')
     await wrapper.get('[data-action="save-operation"]').trigger('click')
     expect(serviceCatalogApi.saveOperation).not.toHaveBeenCalled()
@@ -159,15 +181,34 @@ describe('ServiceCatalogView', () => {
     expect(serviceCatalogApi.publish).toHaveBeenCalledWith('crm')
 
     await wrapper.get('button[data-operation="createLead"]').trigger('click')
+    await flushPromises()
     await wrapper.get('[data-field="url"]').setValue('https://changed.example')
     await wrapper.get('[data-action="publish"]').trigger('click')
     expect(serviceCatalogApi.publish).toHaveBeenCalledTimes(1)
     expect(ElMessage.warning).toHaveBeenCalledWith('Lưu thao tác trước khi phát hành')
 
     await wrapper.get('button[data-operation="findLead"]').trigger('click')
+    await flushPromises()
     expect(confirmAction).toHaveBeenCalled()
     expect((wrapper.get('[data-field="url"]').element as HTMLInputElement).value).toBe(
       'https://changed.example',
     )
+  })
+
+  it('deletes an operation only after confirmation and drops it from the draft list', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-operation-key="findLead"]').trigger('click')
+    expect(serviceCatalogApi.deleteOperation).not.toHaveBeenCalled()
+
+    vi.mocked(confirmAction).mockResolvedValueOnce(true)
+    vi.mocked(serviceCatalogApi.list).mockResolvedValue([
+      { serviceKey: 'crm', name: 'CRM', operations: [publishedOperation] },
+    ])
+    await wrapper.get('[data-operation-key="findLead"]').trigger('click')
+    await flushPromises()
+
+    expect(serviceCatalogApi.deleteOperation).toHaveBeenCalledWith('crm', 'findLead')
+    expect(wrapper.text()).not.toContain('findLead')
   })
 })

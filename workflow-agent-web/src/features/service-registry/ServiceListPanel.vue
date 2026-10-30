@@ -73,7 +73,7 @@ const visibleServices = computed(() => {
 .service-list__empty {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .service-list__items {
@@ -86,7 +86,8 @@ const visibleServices = computed(() => {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 12px;
+  min-height: 64px;
+  padding: 14px 16px;
   border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-md);
   color: var(--color-text);
@@ -106,20 +107,20 @@ const visibleServices = computed(() => {
 }
 
 .service-list__items strong {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .service-list__items small,
 .service-list__items em {
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 14px;
   font-style: normal;
 }
 
 .service-list__items b {
   justify-self: end;
   color: var(--color-warning);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
 }
 </style>

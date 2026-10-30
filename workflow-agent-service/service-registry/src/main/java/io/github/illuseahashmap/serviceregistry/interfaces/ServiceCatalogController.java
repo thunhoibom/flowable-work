@@ -12,6 +12,7 @@ import io.github.illuseahashmap.serviceregistry.domain.ServiceView;
 import io.github.illuseahashmap.workflow.shared.response.ApiResponse;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,6 +39,9 @@ public class ServiceCatalogController {
 
     @PostMapping
     public ApiResponse<Void> create(@RequestBody CreateServiceRequest request) {
+        if (request.serviceKey() == null || request.serviceKey().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Service key is required");
+        }
         catalog.saveService(request.serviceKey(), request.name());
         return ApiResponse.ok();
     }
@@ -101,6 +105,26 @@ public class ServiceCatalogController {
     @PostMapping("/{serviceKey}/publish")
     public ApiResponse<Void> publish(@PathVariable String serviceKey) {
         catalog.publish(serviceKey);
+        return ApiResponse.ok();
+    }
+
+    @DeleteMapping("/{serviceKey}/operations/{operationKey}")
+    public ApiResponse<Void> deleteOperation(@PathVariable String serviceKey, @PathVariable String operationKey) {
+        try {
+            catalog.deleteOperation(serviceKey, operationKey);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
+        }
+        return ApiResponse.ok();
+    }
+
+    @DeleteMapping("/{serviceKey}")
+    public ApiResponse<Void> deleteService(@PathVariable String serviceKey) {
+        try {
+            catalog.deleteService(serviceKey);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
+        }
         return ApiResponse.ok();
     }
 

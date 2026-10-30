@@ -167,13 +167,17 @@ function setLocation(index: number, location: string) {
 
 .operation-editor h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .operation-editor p {
   margin: 8px 0 0;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: 14px;
+}
+
+.operation-editor :deep(.el-form-item__label) {
+  font-size: 14px;
 }
 
 .parameter-row {

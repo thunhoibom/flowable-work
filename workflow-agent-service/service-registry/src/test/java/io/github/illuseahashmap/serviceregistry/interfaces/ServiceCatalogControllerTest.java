@@ -1,5 +1,6 @@
 package io.github.illuseahashmap.serviceregistry.interfaces;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -106,5 +107,48 @@ class ServiceCatalogControllerTest {
         mvc.perform(get("/services"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].operations[0].publishedOutputParameters[0].jsonField").value("id"));
+    }
+
+    @Test
+    void collectionPathIsExact() throws Exception {
+        mvc.perform(get("/services/")).andExpect(status().isNotFound());
+        mvc.perform(post("/services/")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceKey\":\"crm\",\"name\":\"CRM\"}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceKey\":\"  \",\"name\":\"CRM\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void deleteOperationKeepsPublicationUntilRepublishAndDeleteServiceRemovesBoth() throws Exception {
+        mvc.perform(post("/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceKey\":\"crm\",\"name\":\"CRM\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/services/crm/operations/createLead")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method": "POST",
+                                  "url": "https://crm.example/leads",
+                                  "authType": "NONE",
+                                  "timeoutMillis": 1000,
+                                  "bpmnErrorCode": "HTTP_ERROR"
+                                }
+                                """))
+                .andExpect(status().isOk());
+        mvc.perform(post("/services/crm/publish")).andExpect(status().isOk());
+
+        mvc.perform(delete("/services/crm/operations/createLead")).andExpect(status().isOk());
+        mvc.perform(get("/services/crm"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.operations").isEmpty());
+
+        mvc.perform(delete("/services/missing")).andExpect(status().isNotFound());
+        mvc.perform(delete("/services/crm")).andExpect(status().isOk());
+        mvc.perform(get("/services/crm")).andExpect(status().isNotFound());
     }
 }

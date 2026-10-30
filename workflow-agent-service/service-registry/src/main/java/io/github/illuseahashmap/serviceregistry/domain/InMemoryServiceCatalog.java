@@ -60,6 +60,31 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
     }
 
     @Override
+    public void deleteOperation(String serviceKey, String operationKey) {
+        ServiceDraft existing = drafts.get(serviceKey);
+        if (existing == null) {
+            throw new IllegalArgumentException("Unknown service");
+        }
+        boolean found = existing.operations().stream()
+                .anyMatch(operation -> operation.operationKey().equals(operationKey));
+        if (!found) {
+            throw new IllegalArgumentException("Unknown operation");
+        }
+        List<PublishedOperation> remaining = existing.operations().stream()
+                .filter(operation -> !operation.operationKey().equals(operationKey))
+                .toList();
+        drafts.put(serviceKey, new ServiceDraft(serviceKey, existing.name(), remaining));
+    }
+
+    @Override
+    public void deleteService(String serviceKey) {
+        if (drafts.remove(serviceKey) == null) {
+            throw new IllegalArgumentException("Unknown service");
+        }
+        publications.remove(serviceKey);
+    }
+
+    @Override
     public void publish(String serviceKey) {
         ServiceDraft draft = drafts.get(serviceKey);
         if (draft == null) {

@@ -53,12 +53,20 @@ export interface SaveOperationCommand {
   outputParameters?: CatalogOutputParameter[]
 }
 
+function servicePath(serviceKey: string) {
+  if (!serviceKey) throw new Error('Thiếu mã dịch vụ')
+  return `/services/${serviceKey}`
+}
+
 export const serviceCatalogApi = {
   list: () => apiClient.get<ServiceView[]>('/services'),
-  get: (serviceKey: string) => apiClient.get<ServiceView>(`/services/${serviceKey}`),
+  get: (serviceKey: string) => apiClient.get<ServiceView>(servicePath(serviceKey)),
   create: (payload: { serviceKey: string; name: string }) =>
     apiClient.post<void>('/services', payload),
   saveOperation: (serviceKey: string, operationKey: string, payload: SaveOperationCommand) =>
-    apiClient.put<void>(`/services/${serviceKey}/operations/${operationKey}`, payload),
-  publish: (serviceKey: string) => apiClient.post<void>(`/services/${serviceKey}/publish`),
+    apiClient.put<void>(`${servicePath(serviceKey)}/operations/${operationKey}`, payload),
+  publish: (serviceKey: string) => apiClient.post<void>(`${servicePath(serviceKey)}/publish`),
+  deleteOperation: (serviceKey: string, operationKey: string) =>
+    apiClient.delete<void>(`${servicePath(serviceKey)}/operations/${operationKey}`),
+  deleteService: (serviceKey: string) => apiClient.delete<void>(servicePath(serviceKey)),
 }

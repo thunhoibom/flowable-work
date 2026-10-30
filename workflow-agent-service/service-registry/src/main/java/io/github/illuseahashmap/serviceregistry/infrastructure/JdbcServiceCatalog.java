@@ -134,6 +134,40 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
     }
 
     @Override
+    public void deleteOperation(String serviceKey, String operationKey) {
+        Integer definitions = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM service_definition WHERE service_key = ?",
+                Integer.class,
+                serviceKey);
+        if (definitions == null || definitions == 0) {
+            throw new IllegalArgumentException("Unknown service");
+        }
+        int removed = jdbc.update(
+                "DELETE FROM service_operation_draft WHERE service_key = ? AND operation_key = ?",
+                serviceKey,
+                operationKey);
+        if (removed == 0) {
+            throw new IllegalArgumentException("Unknown operation");
+        }
+    }
+
+    @Override
+    public void deleteService(String serviceKey) {
+        transactions.executeWithoutResult(status -> {
+            Integer definitions = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM service_definition WHERE service_key = ?",
+                    Integer.class,
+                    serviceKey);
+            if (definitions == null || definitions == 0) {
+                throw new IllegalArgumentException("Unknown service");
+            }
+            jdbc.update("DELETE FROM service_operation_draft WHERE service_key = ?", serviceKey);
+            jdbc.update("DELETE FROM service_publication WHERE service_key = ?", serviceKey);
+            jdbc.update("DELETE FROM service_definition WHERE service_key = ?", serviceKey);
+        });
+    }
+
+    @Override
     public void publish(String serviceKey) {
         transactions.executeWithoutResult(status -> {
             Integer definitions = jdbc.queryForObject(

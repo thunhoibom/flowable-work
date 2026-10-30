@@ -13,6 +13,10 @@ public interface ServiceCatalog {
 
     void publish(String serviceKey);
 
+    void deleteOperation(String serviceKey, String operationKey);
+
+    void deleteService(String serviceKey);
+
     Optional<PublishedOperation> published(String serviceKey, String operationKey);
 
     Optional<ServiceView> find(String serviceKey);
