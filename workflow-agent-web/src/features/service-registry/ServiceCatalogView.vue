@@ -1,37 +1,85 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/api/http'
+import ListEmptyState from '@/components/ListEmptyState.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import { confirmAction } from '@/utils/confirmation'
 import { serviceCatalogApi, type CatalogOperation, type ServiceView } from './api'
-import { pathRequirement } from './parameterDraft'
+import OperationEditor from './OperationEditor.vue'
+import OperationTable from './OperationTable.vue'
+import ServiceListPanel from './ServiceListPanel.vue'
+import {
+  blankOperationDraft,
+  draftFromOperation,
+  isOperationDraftDirty,
+  toSaveCommand,
+  validateOperationDraft,
+  type OperationDraft,
+} from './operationDraft'
 
 const services = ref<ServiceView[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
-const serviceForm = reactive({ serviceKey: '', name: '' })
-const operationForm = reactive({
-  operationKey: '',
-  method: 'POST',
-  url: '',
-  authType: 'NONE',
-  apiKeyHeader: '',
-  secret: '',
-  bodyTemplate: '',
-  timeoutMillis: 5000,
-  errorStatusCodes: '409,5XX',
-  bpmnErrorCode: 'HTTP_ERROR',
-})
-const inputRows = ref<
-  Array<{ name: string; type: string; required: boolean; location: string }>
->([])
-const outputRows = ref<Array<{ name: string; type: string; jsonField: string }>>([])
+const createVisible = ref(false)
+const query = ref('')
+const selectedKey = ref('')
+const editingKey = ref<string | null>(null)
+const secretPresent = ref(false)
+const draft = ref<OperationDraft>(blankOperationDraft())
+const baseline = ref<OperationDraft>(blankOperationDraft())
+const createForm = reactive({ serviceKey: '', name: '' })
 
-async function refresh() {
+const selectedService = computed(() =>
+  services.value.find((service) => service.serviceKey === selectedKey.value),
+)
+const dirty = computed(() => isOperationDraftDirty(draft.value, baseline.value))
+
+function loadNew() {
+  editingKey.value = null
+  secretPresent.value = false
+  draft.value = blankOperationDraft()
+  baseline.value = blankOperationDraft()
+}
+
+function loadOperation(operation: CatalogOperation) {
+  editingKey.value = operation.operationKey
+  secretPresent.value = operation.secretPresent
+  draft.value = draftFromOperation(operation)
+  baseline.value = draftFromOperation(operation)
+}
+
+async function confirmDiscard() {
+  if (!dirty.value) return true
+  return confirmAction('Thay đổi thao tác chưa được lưu. Hủy các thay đổi này?', 'Hủy thay đổi', {
+    type: 'warning',
+    confirmButtonText: 'Hủy thay đổi',
+    cancelButtonText: 'Ở lại',
+  })
+}
+
+async function refresh(prefer?: { serviceKey?: string; operationKey?: string }) {
   loading.value = true
   try {
     services.value = await serviceCatalogApi.list()
+    const service =
+      services.value.find((item) => item.serviceKey === (prefer?.serviceKey || selectedKey.value)) ||
+      services.value[0]
+    if (!service) {
+      selectedKey.value = ''
+      loadNew()
+      return
+    }
+    selectedKey.value = service.serviceKey
+    const operation = service.operations.find((item) => item.operationKey === prefer?.operationKey)
+    if (operation) loadOperation(operation)
+    else if (prefer?.operationKey === undefined && editingKey.value) {
+      const current = service.operations.find((item) => item.operationKey === editingKey.value)
+      if (current) loadOperation(current)
+      else loadNew()
+    } else loadNew()
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
   } finally {
@@ -39,14 +87,54 @@ async function refresh() {
   }
 }
 
+async function selectService(serviceKey: string) {
+  if (serviceKey === selectedKey.value) return
+  if (!(await confirmDiscard())) return
+  selectedKey.value = serviceKey
+  loadNew()
+}
+
+async function selectOperation(operationKey: string) {
+  if (operationKey === editingKey.value) return
+  if (!(await confirmDiscard())) return
+  const operation = selectedService.value?.operations.find((item) => item.operationKey === operationKey)
+  if (operation) loadOperation(operation)
+}
+
+async function addOperation() {
+  if (editingKey.value === null && !dirty.value) return
+  if (!(await confirmDiscard())) return
+  loadNew()
+}
+
+function openCreate() {
+  createForm.serviceKey = ''
+  createForm.name = ''
+  createVisible.value = true
+}
+
 async function createService() {
+  const serviceKey = createForm.serviceKey.trim()
+  const name = createForm.name.trim()
+  if (!serviceKey) {
+    ElMessage.warning('Thiếu mã dịch vụ')
+    return
+  }
+  if (!name) {
+    ElMessage.warning('Thiếu tên dịch vụ')
+    return
+  }
+  if (services.value.some((service) => service.serviceKey === serviceKey)) {
+    ElMessage.warning('Mã dịch vụ đã tồn tại')
+    return
+  }
+  if (!(await confirmDiscard())) return
   creating.value = true
   try {
-    await serviceCatalogApi.create({
-      serviceKey: serviceForm.serviceKey.trim(),
-      name: serviceForm.name.trim(),
-    })
-    await refresh()
+    await serviceCatalogApi.create({ serviceKey, name })
+    createVisible.value = false
+    await refresh({ serviceKey })
+    loadNew()
     ElMessage.success('Đã lưu dịch vụ')
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
@@ -56,35 +144,17 @@ async function createService() {
 }
 
 async function saveOperation() {
+  const message = validateOperationDraft(draft.value)
+  if (message) {
+    ElMessage.warning(message)
+    return
+  }
+  const serviceKey = selectedKey.value
+  const operationKey = draft.value.operationKey.trim()
   saving.value = true
   try {
-    await serviceCatalogApi.saveOperation(serviceForm.serviceKey.trim(), operationForm.operationKey.trim(), {
-      method: operationForm.method,
-      url: operationForm.url.trim(),
-      authType: operationForm.authType,
-      apiKeyHeader: operationForm.apiKeyHeader.trim() || undefined,
-      secret: operationForm.secret || undefined,
-      bodyTemplate: operationForm.bodyTemplate || undefined,
-      timeoutMillis: operationForm.timeoutMillis,
-      errorStatusCodes: operationForm.errorStatusCodes
-        .split(',')
-        .map((code) => code.trim())
-        .filter(Boolean),
-      bpmnErrorCode: operationForm.bpmnErrorCode.trim() || 'HTTP_ERROR',
-      inputParameters: inputRows.value.map((row) => ({
-        name: row.name,
-        type: row.type,
-        required: pathRequirement(row.location, row.required).required,
-        location: row.location,
-      })),
-      outputParameters: outputRows.value.map((row) => ({
-        name: row.name,
-        type: row.type,
-        jsonField: row.jsonField,
-      })),
-    })
-    operationForm.secret = ''
-    await refresh()
+    await serviceCatalogApi.saveOperation(serviceKey, operationKey, toSaveCommand(draft.value))
+    await refresh({ serviceKey, operationKey })
     ElMessage.success('Đã lưu thao tác')
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
@@ -94,10 +164,15 @@ async function saveOperation() {
 }
 
 async function publishService() {
+  if (!selectedKey.value) return
+  if (dirty.value) {
+    ElMessage.warning('Lưu thao tác trước khi phát hành')
+    return
+  }
   publishing.value = true
   try {
-    await serviceCatalogApi.publish(serviceForm.serviceKey.trim())
-    await refresh()
+    await serviceCatalogApi.publish(selectedKey.value)
+    await refresh({ serviceKey: selectedKey.value, operationKey: editingKey.value || undefined })
     ElMessage.success('Đã phát hành. Những lần chạy sau dùng bản này')
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
@@ -106,181 +181,120 @@ async function publishService() {
   }
 }
 
-function editOperation(serviceKey: string, name: string, operation: CatalogOperation) {
-  serviceForm.serviceKey = serviceKey
-  serviceForm.name = name
-  operationForm.operationKey = operation.operationKey
-  operationForm.method = operation.method
-  operationForm.url = operation.urlTemplate
-  operationForm.authType = operation.authType
-  operationForm.apiKeyHeader = operation.apiKeyHeader || ''
-  operationForm.secret = ''
-  operationForm.bodyTemplate = operation.bodyTemplate || ''
-  operationForm.timeoutMillis = operation.timeoutMillis
-  operationForm.errorStatusCodes = operation.errorStatusCodes.join(',')
-  operationForm.bpmnErrorCode = operation.bpmnErrorCode
-  inputRows.value = (operation.inputParameters || []).map((row) => ({
-    ...row,
-    required: pathRequirement(row.location, row.required).required,
-  }))
-  outputRows.value = (operation.outputParameters || []).map((row) => ({ ...row }))
-}
-
-const parameterTypes = ['STRING', 'INTEGER', 'LONG', 'DOUBLE', 'BOOLEAN', 'JSON']
-const parameterLocations = ['PATH', 'QUERY', 'HEADER', 'BODY']
-
-function addInput() {
-  inputRows.value.push({ name: '', type: 'STRING', required: false, location: 'QUERY' })
-}
-
-function addOutput() {
-  outputRows.value.push({ name: '', type: 'STRING', jsonField: '' })
-}
-
-function setLocation(
-  row: { required: boolean; location: string },
-  location: string,
-) {
-  const next = pathRequirement(location, row.required)
-  row.location = location
-  row.required = next.required
-}
-
-onMounted(refresh)
+onMounted(() => {
+  void refresh()
+})
 </script>
 
 <template>
-  <section class="service-catalog">
-    <header>
-      <h2>Dịch vụ</h2>
-      <p>Khai báo API bên ngoài. Trong quy trình, bạn chỉ chọn dịch vụ và thao tác.</p>
-    </header>
-    <el-form label-position="top">
-      <el-form-item label="Mã dịch vụ">
-        <el-input v-model="serviceForm.serviceKey" placeholder="crm" />
-      </el-form-item>
-      <el-form-item label="Tên dịch vụ">
-        <el-input v-model="serviceForm.name" placeholder="CRM" />
-      </el-form-item>
-      <el-button type="primary" :loading="creating" @click="createService">Lưu dịch vụ</el-button>
-    </el-form>
-    <el-form label-position="top">
-      <el-form-item label="Mã thao tác">
-        <el-input v-model="operationForm.operationKey" placeholder="createLead" />
-      </el-form-item>
-      <el-form-item label="Phương thức">
-        <el-select v-model="operationForm.method">
-          <el-option v-for="method in ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']" :key="method" :label="method" :value="method" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="Mẫu địa chỉ">
-        <el-input v-model="operationForm.url" placeholder="https://crm.example/leads/${leadId}" />
-      </el-form-item>
-      <el-form-item label="Mẫu nội dung">
-        <el-input v-model="operationForm.bodyTemplate" />
-      </el-form-item>
-      <el-form-item label="Xác thực">
-        <el-select v-model="operationForm.authType">
-          <el-option label="Không" value="NONE" />
-          <el-option label="Bearer" value="BEARER" />
-          <el-option label="Basic" value="BASIC" />
-          <el-option label="API Key" value="API_KEY" />
-        </el-select>
-      </el-form-item>
-      <el-form-item v-if="operationForm.authType === 'API_KEY'" label="Header API Key">
-        <el-input v-model="operationForm.apiKeyHeader" placeholder="X-Api-Key" />
-      </el-form-item>
-      <el-form-item label="Khóa">
-        <el-input v-model="operationForm.secret" type="password" show-password placeholder="Để trống để giữ khóa đã lưu" />
-      </el-form-item>
-      <el-form-item label="Thời gian chờ (mili giây)">
-        <el-input-number v-model="operationForm.timeoutMillis" :min="1" />
-      </el-form-item>
-      <el-form-item label="Mã trạng thái lỗi">
-        <el-input v-model="operationForm.errorStatusCodes" placeholder="409,5XX" />
-      </el-form-item>
-      <el-form-item label="Mã lỗi">
-        <el-input v-model="operationForm.bpmnErrorCode" />
-      </el-form-item>
-      <div class="parameter-block">
-        <strong>Đầu vào</strong>
-        <div v-for="(row, index) in inputRows" :key="`input-${index}`" class="parameter-row">
-          <el-input v-model="row.name" placeholder="Tên tham số" />
-          <el-select v-model="row.type">
-            <el-option v-for="type in parameterTypes" :key="type" :label="type" :value="type" />
-          </el-select>
-          <el-select
-            :model-value="row.location"
-            @update:model-value="setLocation(row, String($event || ''))"
-          >
-            <el-option
-              v-for="location in parameterLocations"
-              :key="location"
-              :label="location"
-              :value="location"
-            />
-          </el-select>
-          <el-checkbox
-            :model-value="row.required"
-            :disabled="pathRequirement(row.location, row.required).locked"
-            @update:model-value="row.required = Boolean($event)"
-          >
-            Bắt buộc
-          </el-checkbox>
-          <el-button @click="inputRows.splice(index, 1)">Xóa</el-button>
-        </div>
-        <el-button @click="addInput">Thêm đầu vào</el-button>
-      </div>
-      <div class="parameter-block">
-        <strong>Đầu ra</strong>
-        <div v-for="(row, index) in outputRows" :key="`output-${index}`" class="parameter-row">
-          <el-input v-model="row.name" placeholder="Tên tham số" />
-          <el-select v-model="row.type">
-            <el-option v-for="type in parameterTypes" :key="type" :label="type" :value="type" />
-          </el-select>
-          <el-input v-model="row.jsonField" placeholder="jsonField" />
-          <el-button @click="outputRows.splice(index, 1)">Xóa</el-button>
-        </div>
-        <el-button @click="addOutput">Thêm đầu ra</el-button>
-      </div>
-      <el-button :loading="saving" @click="saveOperation">Lưu thao tác</el-button>
-      <el-button type="primary" :loading="publishing" @click="publishService">Phát hành</el-button>
-    </el-form>
-    <ul>
-      <li v-for="service in services" :key="service.serviceKey">
-        <button
-          v-for="operation in service.operations"
-          :key="operation.operationKey"
-          type="button"
-          :data-operation="operation.operationKey"
-          @click="editOperation(service.serviceKey, service.name, operation)"
-        >
-          {{ operation.method }} {{ operation.operationKey }}
-          · {{ operation.publishedUrl || 'Chưa phát hành' }}
-          · {{ operation.secretPresent ? 'Đã lưu khóa' : 'Không có khóa' }}
-        </button>
-      </li>
-    </ul>
-    <p v-if="loading">Đang tải</p>
-  </section>
+  <div class="page-stack service-catalog">
+    <PageHeader
+      eyebrow="Tích hợp"
+      title="Dịch vụ"
+      description="Khai báo API bên ngoài. Trong quy trình, bạn chỉ chọn dịch vụ và thao tác."
+    >
+      <template #actions>
+        <el-button @click="openCreate">Tạo dịch vụ</el-button>
+      </template>
+    </PageHeader>
+
+    <p v-if="loading && !services.length">Đang tải</p>
+    <ListEmptyState
+      v-else-if="!services.length"
+      title="Chưa có dịch vụ"
+      description="Tạo một dịch vụ để khai báo API bên ngoài."
+    >
+      <el-button type="primary" @click="openCreate">Tạo dịch vụ</el-button>
+    </ListEmptyState>
+    <div v-else class="catalog-workspace">
+      <ServiceListPanel
+        v-model:query="query"
+        :services="services"
+        :selected-key="selectedKey"
+        @select="selectService"
+      />
+      <section v-if="selectedService" class="catalog-detail">
+        <header>
+          <div>
+            <h3>{{ selectedService.name }}</h3>
+            <p>{{ selectedService.serviceKey }}</p>
+          </div>
+          <el-button data-action="publish" type="primary" :loading="publishing" @click="publishService">
+            Phát hành
+          </el-button>
+        </header>
+        <OperationTable
+          :operations="selectedService.operations"
+          :selected-operation-key="editingKey || ''"
+          @select="selectOperation"
+          @add="addOperation"
+        />
+        <OperationEditor
+          v-model="draft"
+          :operation-key-locked="editingKey !== null"
+          :secret-present="secretPresent"
+          :saving="saving"
+          @save="saveOperation"
+        />
+      </section>
+    </div>
+
+    <el-dialog v-if="createVisible" v-model="createVisible" title="Tạo dịch vụ" width="480px">
+      <el-form label-position="top">
+        <el-form-item label="Mã dịch vụ">
+          <el-input v-model="createForm.serviceKey" data-field="service-key" placeholder="crm" />
+        </el-form-item>
+        <el-form-item label="Tên dịch vụ">
+          <el-input v-model="createForm.name" data-field="service-name" placeholder="CRM" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">Hủy</el-button>
+        <el-button type="primary" :loading="creating" @click="createService">Lưu dịch vụ</el-button>
+      </template>
+    </el-dialog>
+  </div>
 </template>
 
 <style scoped>
-.service-catalog {
+.catalog-workspace {
   display: grid;
-  gap: 24px;
-  max-width: 720px;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
 }
 
-.parameter-block {
+.catalog-detail {
   display: grid;
-  gap: 8px;
+  align-content: start;
+  gap: 20px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
 }
 
-.parameter-row {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr auto auto;
-  gap: 8px;
-  align-items: center;
+.catalog-detail header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.catalog-detail h3,
+.catalog-detail p {
+  margin: 0;
+}
+
+.catalog-detail header p {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 959px) {
+  .catalog-workspace {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
