@@ -111,4 +111,22 @@ class RequestFactoryTest {
         assertEquals("1", request.headers().get("trace"));
         assertFalse(request.headers().containsKey("Authorization"));
     }
+
+    @Test
+    void joinsARelativePathAndKeepsAnAbsoluteUrl() {
+        var relative = new PublishedOperation(
+                "createLead", HttpMethod.GET, "/orders/${orderId}",
+                AuthType.NONE, null, null, null, 1000, List.of(), "HTTP_ERROR",
+                List.of(new InputParameter("orderId", ParameterType.STRING, true, ParameterLocation.PATH)),
+                List.of());
+        var request = RequestFactory.create(relative, Map.of("orderId", "15"), "https://crm.example/");
+        assertEquals("https://crm.example/orders/15", request.url());
+
+        var absolute = new PublishedOperation(
+                "createLead", HttpMethod.GET, "https://other.example/orders",
+                AuthType.NONE, null, null, null, 1000, List.of(), "HTTP_ERROR",
+                List.of(), List.of());
+        // An absolute template ignores the base, including a null base.
+        assertEquals("https://other.example/orders", RequestFactory.create(absolute, Map.of(), null).url());
+    }
 }

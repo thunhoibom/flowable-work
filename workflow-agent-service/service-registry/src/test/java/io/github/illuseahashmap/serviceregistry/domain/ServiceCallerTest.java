@@ -75,12 +75,17 @@ class ServiceCallerTest {
             detachLogs(logs);
         }
 
-        assertThat(logs.list).singleElement().satisfies(event -> {
-            assertThat(event.getFormattedMessage()).contains("createLead");
-            assertThat(event.getFormattedMessage()).contains("201");
-            assertThat(event.getFormattedMessage()).contains("{\"id\":\"L1\"}");
-            assertThat(event.getFormattedMessage()).doesNotContain("s3cret");
-        });
+        // The request line is logged too. The response line is the one that carries status and body.
+        assertThat(logs.list)
+                .filteredOn(event -> event.getFormattedMessage().contains("status="))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getFormattedMessage()).contains("createLead");
+                    assertThat(event.getFormattedMessage()).contains("201");
+                    assertThat(event.getFormattedMessage()).contains("{\"id\":\"L1\"}");
+                });
+        assertThat(logs.list).allSatisfy(event ->
+                assertThat(event.getFormattedMessage()).doesNotContain("s3cret"));
     }
 
     private ListAppender<ILoggingEvent> attachLogs() {

@@ -21,8 +21,14 @@ public final class RequestFactory {
     }
 
     public static OutboundRequest create(PublishedOperation operation, Map<String, Object> resolvedInputs) {
+        return create(operation, resolvedInputs, null);
+    }
+
+    public static OutboundRequest create(
+            PublishedOperation operation, Map<String, Object> resolvedInputs, String baseUrl) {
         Map<String, Object> values = resolvedInputs == null ? Map.of() : resolvedInputs;
-        String url = operation.urlTemplate();
+        // Join before placeholder replacement so ${id} is encoded inside the final URL.
+        String url = RequestUrl.join(baseUrl, operation.urlTemplate());
         StringBuilder query = new StringBuilder();
         Map<String, String> headers = new LinkedHashMap<>();
         boolean hasBody = operation.inputs().stream()

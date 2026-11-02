@@ -17,7 +17,12 @@ public final class ServiceCaller {
     }
 
     public CallOutcome call(PublishedOperation operation, Map<String, Object> resolvedInputs) {
-        OutboundRequest request = RequestFactory.create(operation, resolvedInputs);
+        return call(operation, resolvedInputs, null);
+    }
+
+    public CallOutcome call(PublishedOperation operation, Map<String, Object> resolvedInputs, String baseUrl) {
+        // Slice 1 stores retry policy but still makes one attempt.
+        OutboundRequest request = RequestFactory.create(operation, resolvedInputs, baseUrl);
         LOGGER.info(
                 "Service call request operation={} method={} url={} body={}",
                 operation.operationKey(),
