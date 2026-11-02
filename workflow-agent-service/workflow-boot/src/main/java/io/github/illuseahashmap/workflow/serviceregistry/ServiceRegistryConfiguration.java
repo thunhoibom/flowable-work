@@ -1,6 +1,7 @@
 package io.github.illuseahashmap.workflow.serviceregistry;
 
 import io.github.illuseahashmap.serviceregistry.application.PublishedServiceInvoker;
+import io.github.illuseahashmap.serviceregistry.application.ServiceEnvironment;
 import io.github.illuseahashmap.serviceregistry.domain.HttpTransport;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceCaller;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceCatalog;
@@ -32,7 +33,16 @@ public class ServiceRegistryConfiguration {
     }
 
     @Bean
-    PublishedServiceInvoker publishedServiceInvoker(ServiceCatalog serviceCatalog, HttpTransport serviceHttpTransport) {
-        return new PublishedServiceInvoker(serviceCatalog, new ServiceCaller(serviceHttpTransport));
+    ServiceEnvironment serviceEnvironment(
+            @Value("${workflow.services.environment:default}") String environment) {
+        return () -> environment;
+    }
+
+    @Bean
+    PublishedServiceInvoker publishedServiceInvoker(
+            ServiceCatalog serviceCatalog,
+            HttpTransport serviceHttpTransport,
+            ServiceEnvironment serviceEnvironment) {
+        return new PublishedServiceInvoker(serviceCatalog, new ServiceCaller(serviceHttpTransport), serviceEnvironment);
     }
 }

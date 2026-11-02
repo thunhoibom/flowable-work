@@ -54,6 +54,8 @@ workflow:
   service:
     secrets:
       master-key-base64: ${WORKFLOW_SERVICE_SECRET_KEY_BASE64:${WORKFLOW_MASTER_KEY_BASE64:}}
+  services:
+    environment: ${WORKFLOW_SERVICES_ENVIRONMENT:default}
   runtime:
     environment: ${WORKFLOW_ENV:production}
   lock:
