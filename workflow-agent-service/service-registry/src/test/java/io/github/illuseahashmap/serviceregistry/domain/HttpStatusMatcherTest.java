@@ -9,9 +9,12 @@ import org.junit.jupiter.api.Test;
 class HttpStatusMatcherTest {
 
     @Test
-    void matchesExactCodeAndClassPattern() {
-        assertTrue(HttpStatusMatcher.matches(409, List.of("400", "409", "5XX")));
-        assertTrue(HttpStatusMatcher.matches(503, List.of("400", "409", "5XX")));
-        assertFalse(HttpStatusMatcher.matches(404, List.of("400", "409", "5XX")));
+    void matchesExactClassAndRange() {
+        // Exact code, status class, and inclusive range are the three pattern forms.
+        assertTrue(HttpStatusMatcher.matches(409, List.of("409")));
+        assertTrue(HttpStatusMatcher.matches(503, List.of("5xx")));
+        assertTrue(HttpStatusMatcher.matches(404, List.of("400-499")));
+        assertFalse(HttpStatusMatcher.matches(500, List.of("400-499")));
+        assertFalse(HttpStatusMatcher.matches(200, List.of("5xx")));
     }
 }
