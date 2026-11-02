@@ -110,6 +110,22 @@ class ServiceCatalogControllerTest {
     }
 
     @Test
+    void renamesAnExistingService() throws Exception {
+        mvc.perform(post("/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceKey\":\"crm\",\"name\":\"CRM\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(post("/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceKey\":\"crm\",\"name\":\"CRM mới\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/services/crm"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("CRM mới"));
+    }
+
+    @Test
     void collectionPathIsExact() throws Exception {
         mvc.perform(get("/services/")).andExpect(status().isNotFound());
         mvc.perform(post("/services/")
@@ -150,5 +166,51 @@ class ServiceCatalogControllerTest {
         mvc.perform(delete("/services/missing")).andExpect(status().isNotFound());
         mvc.perform(delete("/services/crm")).andExpect(status().isOk());
         mvc.perform(get("/services/crm")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void savesConnectionSettingsWithoutReturningTheSecret() throws Exception {
+        mvc.perform(post("/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceKey\":\"crm\",\"name\":\"CRM\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/services/crm/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "CRM",
+                                  "description": "Khách hàng",
+                                  "baseUrls": [{"environment": "default", "url": "https://crm.example"}],
+                                  "sharedAuth": {"type": "BEARER", "apiKeyHeader": null, "secret": "s3cret"}
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        String body = mvc.perform(get("/services/crm"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.description").value("Khách hàng"))
+                .andExpect(jsonPath("$.data.baseUrls[0].url").value("https://crm.example"))
+                .andExpect(jsonPath("$.data.sharedAuth.type").value("BEARER"))
+                .andExpect(jsonPath("$.data.sharedAuth.secretPresent").value(true))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        org.junit.jupiter.api.Assertions.assertFalse(body.contains("s3cret"));
+
+        // A blank secret must not wipe the secret stored by the previous save.
+        mvc.perform(put("/services/crm/settings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "CRM",
+                                  "description": "Khách hàng",
+                                  "baseUrls": [{"environment": "default", "url": "https://crm.example"}],
+                                  "sharedAuth": {"type": "BEARER", "apiKeyHeader": null, "secret": ""}
+                                }
+                                """))
+                .andExpect(status().isOk());
+        mvc.perform(get("/services/crm"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sharedAuth.secretPresent").value(true));
     }
 }
