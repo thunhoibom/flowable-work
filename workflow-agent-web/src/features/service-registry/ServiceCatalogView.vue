@@ -10,6 +10,7 @@ import OperationEditor from './OperationEditor.vue'
 import OperationTable from './OperationTable.vue'
 import ServiceListPanel from './ServiceListPanel.vue'
 import {
+  authTypes,
   blankOperationDraft,
   draftFromOperation,
   isOperationDraftDirty,
@@ -22,8 +23,10 @@ const services = ref<ServiceView[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const saving = ref(false)
+const savingService = ref(false)
 const publishing = ref(false)
 const createVisible = ref(false)
+const editVisible = ref(false)
 const editorVisible = ref(false)
 const query = ref('')
 const selectedKey = ref('')
@@ -32,6 +35,15 @@ const secretPresent = ref(false)
 const draft = ref<OperationDraft>(blankOperationDraft())
 const baseline = ref<OperationDraft>(blankOperationDraft())
 const createForm = reactive({ serviceKey: '', name: '' })
+const editForm = reactive({
+  serviceKey: '',
+  name: '',
+  description: '',
+  baseUrls: [{ environment: 'default', url: '' }],
+  authType: 'NONE',
+  apiKeyHeader: '',
+  secret: '',
+})
 
 const selectedService = computed(() =>
   services.value.find((service) => service.serviceKey === selectedKey.value),
@@ -167,6 +179,57 @@ function openCreate() {
   createVisible.value = true
 }
 
+function openEdit() {
+  const service = selectedService.value
+  if (!service) return
+  editForm.serviceKey = service.serviceKey
+  editForm.name = service.name
+  editForm.description = service.description || ''
+  const baseUrls = service.baseUrls?.length
+    ? service.baseUrls.map((row) => ({ environment: row.environment, url: row.url }))
+    : [{ environment: 'default', url: '' }]
+  editForm.baseUrls.splice(0, editForm.baseUrls.length, ...baseUrls)
+  editForm.authType = service.sharedAuth?.type || 'NONE'
+  editForm.apiKeyHeader = service.sharedAuth?.apiKeyHeader || ''
+  // The API never returns the secret, so the field starts empty and a blank save keeps the stored one.
+  editForm.secret = ''
+  editVisible.value = true
+}
+
+function addBaseUrl() {
+  editForm.baseUrls.push({ environment: '', url: '' })
+}
+
+async function saveService() {
+  const name = editForm.name.trim()
+  if (!name) {
+    ElMessage.warning('Thiếu tên dịch vụ')
+    return
+  }
+  savingService.value = true
+  try {
+    await serviceCatalogApi.saveSettings(editForm.serviceKey, {
+      name,
+      description: editForm.description.trim(),
+      baseUrls: editForm.baseUrls
+        .map((row) => ({ environment: row.environment.trim(), url: row.url.trim() }))
+        .filter((row) => row.environment || row.url),
+      sharedAuth: {
+        type: editForm.authType,
+        apiKeyHeader: editForm.apiKeyHeader.trim(),
+        secret: editForm.secret,
+      },
+    })
+    editVisible.value = false
+    await refresh({ serviceKey: editForm.serviceKey })
+    ElMessage.success('Đã lưu dịch vụ')
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error))
+  } finally {
+    savingService.value = false
+  }
+}
+
 async function createService() {
   const serviceKey = createForm.serviceKey.trim()
   const name = createForm.name.trim()
@@ -274,6 +337,7 @@ onMounted(() => {
             <p>{{ selectedService.serviceKey }}</p>
           </div>
           <div class="catalog-detail__actions">
+            <el-button data-action="edit-service" @click="openEdit">Sửa dịch vụ</el-button>
             <el-button data-action="delete-service" @click="removeService">Xóa dịch vụ</el-button>
             <el-button data-action="publish" type="primary" :loading="publishing" @click="publishService">
               Phát hành
@@ -303,10 +367,66 @@ onMounted(() => {
         :operation-key-locked="editingKey !== null"
         :secret-present="secretPresent"
         :saving="saving"
+        :shared-auth-type="selectedService?.sharedAuth?.type || 'NONE'"
         @save="saveOperation"
       />
       <template #footer>
         <el-button @click="closeEditor()">Hủy</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-if="editVisible" v-model="editVisible" title="Sửa dịch vụ" width="640px">
+      <el-form label-position="top">
+        <el-form-item label="Mã dịch vụ">
+          <el-input v-model="editForm.serviceKey" data-field="edit-service-key" disabled />
+        </el-form-item>
+        <el-form-item label="Tên dịch vụ">
+          <el-input v-model="editForm.name" data-field="edit-service-name" placeholder="CRM" />
+        </el-form-item>
+        <el-form-item label="Mô tả">
+          <el-input
+            v-model="editForm.description"
+            data-field="edit-service-description"
+            type="textarea"
+            :rows="2"
+          />
+        </el-form-item>
+        <el-form-item label="Địa chỉ gốc theo môi trường">
+          <div v-for="(row, index) in editForm.baseUrls" :key="`base-${index}`" class="base-url-row">
+            <el-input v-model="row.environment" data-field="edit-base-environment" placeholder="default" />
+            <el-input v-model="row.url" data-field="edit-base-url" placeholder="https://crm.example" />
+            <el-button @click="editForm.baseUrls.splice(index, 1)">Xóa</el-button>
+          </div>
+          <el-button @click="addBaseUrl">Thêm môi trường</el-button>
+        </el-form-item>
+        <el-form-item label="Xác thực dùng chung">
+          <el-select v-model="editForm.authType" data-field="edit-shared-auth">
+            <el-option
+              v-for="auth in authTypes"
+              :key="auth.value"
+              :label="auth.label"
+              :value="auth.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="editForm.authType === 'API_KEY'" label="Header API Key">
+          <el-input v-model="editForm.apiKeyHeader" data-field="edit-api-key-header" placeholder="X-Api-Key" />
+        </el-form-item>
+        <el-form-item label="Khóa dùng chung">
+          <el-input
+            v-model="editForm.secret"
+            data-field="edit-shared-secret"
+            type="password"
+            show-password
+            placeholder="Để trống để giữ khóa đã lưu"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editVisible = false">Hủy</el-button>
+        <el-button type="primary" data-action="save-service" :loading="savingService" @click="saveService">
+          Lưu dịch vụ
+        </el-button>
       </template>
     </el-dialog>
 
@@ -330,8 +450,9 @@ onMounted(() => {
 <style scoped>
 .catalog-workspace {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
   gap: 16px;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -341,6 +462,7 @@ onMounted(() => {
   gap: 20px;
   min-width: 0;
   padding: 16px;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
@@ -351,6 +473,11 @@ onMounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
+}
+
+.catalog-detail header > div:first-child {
+  min-width: 0;
 }
 
 .catalog-detail__actions {
@@ -360,18 +487,31 @@ onMounted(() => {
   gap: 8px;
 }
 
+.base-url-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.6fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .catalog-detail h3,
 .catalog-detail p {
   margin: 0;
 }
 
 .catalog-detail h3 {
+  overflow: hidden;
   font-size: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .catalog-detail header p {
+  overflow: hidden;
   color: var(--color-text-muted);
   font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-catalog {

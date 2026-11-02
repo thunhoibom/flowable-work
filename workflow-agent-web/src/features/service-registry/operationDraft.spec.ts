@@ -58,6 +58,7 @@ describe('operation draft', () => {
         operationKey: 'createLead',
         url: 'https://crm.example',
         authType: 'API_KEY',
+        authMode: 'OVERRIDE',
       }),
     ).toBe('Thiếu header API key')
     expect(
@@ -102,10 +103,14 @@ describe('operation draft', () => {
       method: 'POST',
       url: 'https://crm.example/orders/${orderId}',
       authType: 'API_KEY',
+      authMode: 'OVERRIDE',
       apiKeyHeader: 'X-Api-Key',
       secret: undefined,
       bodyTemplate: '{"sku":1}',
       timeoutMillis: 1000,
+      connectTimeoutMillis: 1000,
+      errorRules: [{ patterns: ['409', '5XX'], bpmnErrorCode: 'HTTP_ERROR' }],
+      successStatuses: '',
       errorStatusCodes: ['409', '5XX'],
       bpmnErrorCode: 'HTTP_ERROR',
       inputParameters: [{ name: 'orderId', type: 'STRING', required: true, location: 'PATH' }],

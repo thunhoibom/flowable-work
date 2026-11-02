@@ -72,7 +72,10 @@ describe('OperationEditor', () => {
   })
 
   it('shows the saved-secret hint and emits save', async () => {
-    const wrapper = mountEditor(blankOperationDraft(), { secretPresent: true })
+    const draft = blankOperationDraft()
+    // Inherited auth hides the operation secret. The hint belongs to an override.
+    draft.authMode = 'OVERRIDE'
+    const wrapper = mountEditor(draft, { secretPresent: true })
     expect(wrapper.text()).toContain('Đã lưu khóa. Để trống để giữ khóa này.')
     await wrapper.get('[data-action="save-operation"]').trigger('click')
     expect(wrapper.emitted('save')).toHaveLength(1)

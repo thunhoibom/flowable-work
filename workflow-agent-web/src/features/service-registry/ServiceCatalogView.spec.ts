@@ -9,6 +9,8 @@ vi.mock('./api', () => ({
   serviceCatalogApi: {
     list: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
+    saveSettings: vi.fn(),
     saveOperation: vi.fn(),
     publish: vi.fn(),
     deleteOperation: vi.fn(),
@@ -71,8 +73,21 @@ function mountView() {
       stubs: {
         'el-form': slot,
         'el-form-item': slot,
-        'el-dialog': slot,
-        'el-select': slot,
+        'el-dialog': { template: '<div><slot /><slot name="footer" /></div>' },
+        'el-select': {
+          props: ['modelValue'],
+          emits: ['update:modelValue'],
+          template: `<select :value="modelValue" @change="$emit('update:modelValue', $event.target.value)">
+            <option value="NONE">Không</option>
+            <option value="BEARER">Bearer</option>
+            <option value="BASIC">Basic</option>
+            <option value="API_KEY">API Key</option>
+            <option value="INHERIT">Dùng chung</option>
+            <option value="OVERRIDE">Riêng</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+          </select>`,
+        },
         'el-option': slot,
         'el-button': { template: '<button type="button"><slot /></button>' },
         'el-input': inputStub,
@@ -92,6 +107,8 @@ describe('ServiceCatalogView', () => {
       { serviceKey: 'crm', name: 'CRM', operations: [publishedOperation, unpublishedOperation] },
     ])
     vi.mocked(serviceCatalogApi.create).mockResolvedValue()
+    vi.mocked(serviceCatalogApi.update).mockResolvedValue()
+    vi.mocked(serviceCatalogApi.saveSettings).mockResolvedValue()
     vi.mocked(serviceCatalogApi.saveOperation).mockResolvedValue()
     vi.mocked(serviceCatalogApi.publish).mockResolvedValue()
     vi.mocked(serviceCatalogApi.deleteOperation).mockResolvedValue()
@@ -137,6 +154,36 @@ describe('ServiceCatalogView', () => {
     await wrapper.get('[data-action="delete-service"]').trigger('click')
     await flushPromises()
     expect(serviceCatalogApi.deleteService).toHaveBeenCalledWith('crm')
+  })
+
+  it('renames the selected service and keeps its key', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-action="edit-service"]').trigger('click')
+    await flushPromises()
+
+    const key = wrapper.get('[data-field="edit-service-key"]').element as HTMLInputElement
+    expect(key.disabled).toBe(true)
+    expect(key.value).toBe('crm')
+
+    await wrapper.get('[data-field="edit-service-name"]').setValue('   ')
+    await wrapper.get('[data-action="save-service"]').trigger('click')
+    expect(serviceCatalogApi.saveSettings).not.toHaveBeenCalled()
+    expect(ElMessage.warning).toHaveBeenCalledWith('Thiếu tên dịch vụ')
+
+    await wrapper.get('[data-field="edit-service-name"]').setValue('CRM')
+    await wrapper.get('[data-field="edit-service-description"]').setValue('Khách hàng')
+    await wrapper.get('[data-field="edit-base-environment"]').setValue('default')
+    await wrapper.get('[data-field="edit-base-url"]').setValue('https://crm.example')
+    await wrapper.get('[data-field="edit-shared-auth"]').setValue('BEARER')
+    await wrapper.get('[data-action="save-service"]').trigger('click')
+    await flushPromises()
+    expect(serviceCatalogApi.saveSettings).toHaveBeenCalledWith('crm', {
+      name: 'CRM',
+      description: 'Khách hàng',
+      baseUrls: [{ environment: 'default', url: 'https://crm.example' }],
+      sharedAuth: { type: 'BEARER', apiKeyHeader: '', secret: '' },
+    })
   })
 
   it('shows an empty catalog after loading', async () => {

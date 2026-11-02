@@ -13,6 +13,11 @@ export interface CatalogOutputParameter {
   jsonField: string
 }
 
+export interface CatalogErrorRule {
+  patterns: string[]
+  bpmnErrorCode: string
+}
+
 export interface CatalogOperation {
   operationKey: string
   method: string
@@ -22,6 +27,11 @@ export interface CatalogOperation {
   secretPresent: boolean
   bodyTemplate?: string
   timeoutMillis: number
+  /** Absent on operations saved before auth modes existed. The editor treats that as OVERRIDE. */
+  authMode?: string
+  connectTimeoutMillis?: number
+  errorRules?: CatalogErrorRule[]
+  successStatuses?: string[]
   errorStatusCodes: string[]
   bpmnErrorCode: string
   publishedUrl?: string
@@ -33,10 +43,31 @@ export interface CatalogOperation {
   publishedOutputParameters?: CatalogOutputParameter[]
 }
 
+export interface ServiceBaseUrl {
+  environment: string
+  url: string
+}
+
+export interface ServiceSharedAuth {
+  type: string
+  apiKeyHeader?: string | null
+  secretPresent: boolean
+}
+
 export interface ServiceView {
   serviceKey: string
   name: string
+  description?: string
+  baseUrls?: ServiceBaseUrl[]
+  sharedAuth?: ServiceSharedAuth
   operations: CatalogOperation[]
+}
+
+export interface SaveServiceSettingsCommand {
+  name: string
+  description: string
+  baseUrls: ServiceBaseUrl[]
+  sharedAuth: { type: string; apiKeyHeader: string; secret: string }
 }
 
 export interface SaveOperationCommand {
@@ -47,6 +78,11 @@ export interface SaveOperationCommand {
   secret?: string
   bodyTemplate?: string
   timeoutMillis: number
+  authMode: string
+  connectTimeoutMillis: number
+  errorRules: CatalogErrorRule[]
+  /** Comma-separated extra success statuses. The server splits this. */
+  successStatuses: string
   errorStatusCodes: string[]
   bpmnErrorCode: string
   inputParameters?: CatalogInputParameter[]
@@ -63,6 +99,10 @@ export const serviceCatalogApi = {
   get: (serviceKey: string) => apiClient.get<ServiceView>(servicePath(serviceKey)),
   create: (payload: { serviceKey: string; name: string }) =>
     apiClient.post<void>('/services', payload),
+  update: (serviceKey: string, payload: { name: string }) =>
+    apiClient.post<void>('/services', { serviceKey, name: payload.name }),
+  saveSettings: (serviceKey: string, payload: SaveServiceSettingsCommand) =>
+    apiClient.put<void>(`${servicePath(serviceKey)}/settings`, payload),
   saveOperation: (serviceKey: string, operationKey: string, payload: SaveOperationCommand) =>
     apiClient.put<void>(`${servicePath(serviceKey)}/operations/${operationKey}`, payload),
   publish: (serviceKey: string) => apiClient.post<void>(`${servicePath(serviceKey)}/publish`),
