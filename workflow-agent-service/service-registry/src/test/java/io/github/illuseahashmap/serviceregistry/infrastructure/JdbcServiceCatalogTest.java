@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.illuseahashmap.serviceregistry.domain.AuthConfig;
 import io.github.illuseahashmap.serviceregistry.domain.AuthType;
+import io.github.illuseahashmap.serviceregistry.domain.EnvironmentBaseUrl;
 import io.github.illuseahashmap.serviceregistry.domain.HttpMethod;
 import io.github.illuseahashmap.serviceregistry.domain.InputParameter;
 import io.github.illuseahashmap.serviceregistry.domain.OutputParameter;
@@ -99,6 +101,34 @@ class JdbcServiceCatalogTest {
         assertEquals("name", catalog.find("orders").orElseThrow().operations().getFirst().inputParameters().getFirst().name());
     }
 
+    @Test
+    void publishedSettingsStayUntilTheNextPublishAndLegacyArraySnapshotsStillLoad() throws Exception {
+        applyMigration();
+        var catalog = new JdbcServiceCatalog(dataSource(), new ServiceSecretCipher(KEY));
+        catalog.saveService("crm", "CRM");
+        catalog.saveServiceSettings("crm", "CRM", "Khách hàng",
+                List.of(new EnvironmentBaseUrl("default", "https://crm.example")),
+                new AuthConfig(AuthType.BEARER, null, "published-secret"));
+        catalog.saveOperation("crm", operation("https://crm.example/leads", null));
+        catalog.publish("crm");
+        catalog.saveServiceSettings("crm", "CRM", "Nháp",
+                List.of(new EnvironmentBaseUrl("default", "https://draft.example")),
+                new AuthConfig(AuthType.NONE, null, null));
+        assertEquals("https://crm.example", catalog.publishedService("crm").orElseThrow().baseUrls().getFirst().url());
+        assertEquals("published-secret", catalog.publishedService("crm").orElseThrow().sharedAuth().secret());
+
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             Statement statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    UPDATE service_publication
+                    SET snapshot_json = '[{"operationKey":"createLead","method":"POST","urlTemplate":"https://legacy.example","authType":"NONE","timeoutMillis":1000,"errorStatusCodes":[],"bpmnErrorCode":"HTTP_ERROR","inputParameters":[],"outputParameters":[]}]'
+                    WHERE service_key = 'crm'
+                    """);
+        }
+        assertEquals("https://legacy.example", catalog.published("crm", "createLead").orElseThrow().urlTemplate());
+    }
+
     private static PublishedOperation operation(String url, String secret) {
         return operation(url, secret, List.of(), List.of());
     }
@@ -126,6 +156,7 @@ class JdbcServiceCatalogTest {
              Statement statement = connection.createStatement()) {
             executeScript(statement, "/db/migration/platform/V32__add_service_registry.sql");
             executeScript(statement, "/db/migration/platform/V33__add_service_operation_parameters.sql");
+            executeScript(statement, "/db/migration/platform/V34__service_catalog_foundation.sql");
             migrated = true;
         }
     }
