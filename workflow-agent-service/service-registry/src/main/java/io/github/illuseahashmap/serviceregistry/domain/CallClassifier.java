@@ -14,14 +14,14 @@ public final class CallClassifier {
     }
 
     public static CallOutcome classify(PublishedOperation operation, int status, String responseBody) {
-        if (status < 200 || status >= 300) {
-            String code = HttpStatusMatcher.matches(status, operation.errorStatusCodes())
-                    ? operation.bpmnErrorCode()
-                    : "HTTP_ERROR";
-            if (code == null || code.isBlank()) {
-                code = "HTTP_ERROR";
+        // Rules are checked before the body so an error status never becomes process variables.
+        if (!isSuccess(operation, status)) {
+            for (ErrorRule rule : operation.errorRules()) {
+                if (HttpStatusMatcher.matches(status, rule.patterns())) {
+                    return new CallOutcome(blankToHttpError(rule.bpmnErrorCode()), Map.of());
+                }
             }
-            return new CallOutcome(code, Map.of());
+            return new CallOutcome("HTTP_ERROR", Map.of());
         }
         Map<String, Object> variables = new LinkedHashMap<>();
         JsonNode body = readObject(responseBody);
@@ -35,6 +35,15 @@ public final class CallClassifier {
             }
         }
         return new CallOutcome(null, variables);
+    }
+
+    /** 2xx is always success. Extra statuses are declared successes such as a 404 that still returns a body. */
+    private static boolean isSuccess(PublishedOperation operation, int status) {
+        return (status >= 200 && status < 300) || HttpStatusMatcher.matches(status, operation.successStatuses());
+    }
+
+    private static String blankToHttpError(String bpmnErrorCode) {
+        return bpmnErrorCode == null || bpmnErrorCode.isBlank() ? "HTTP_ERROR" : bpmnErrorCode;
     }
 
     private static JsonNode readObject(String responseBody) {

@@ -32,4 +32,25 @@ class CallClassifierTest {
         assertEquals("LEAD_CONFLICT", CallClassifier.classify(operation, 409, "{}").bpmnErrorCode());
         assertEquals("HTTP_ERROR", CallClassifier.classify(operation, 404, "{}").bpmnErrorCode());
     }
+
+    @Test
+    void usesTheFirstMatchingRuleAndTreatsDeclaredStatusesAsSuccess() {
+        var operation = new PublishedOperation(
+                "createLead", HttpMethod.POST, "https://crm.example/leads",
+                AuthMode.OVERRIDE, AuthType.NONE, null, null, null,
+                1000, 2500,
+                java.util.List.of(
+                        new ErrorRule(java.util.List.of("409"), "LEAD_CONFLICT"),
+                        new ErrorRule(java.util.List.of("5xx"), "UNAVAILABLE")),
+                java.util.List.of("404"),
+                java.util.List.of(),
+                java.util.List.of(new OutputParameter("id", ParameterType.STRING, "id")));
+        // 404 is declared as success, so the body is still mapped into variables.
+        assertFalse(CallClassifier.classify(operation, 404, "{\"id\":\"L1\"}").failed());
+        assertEquals("L1", CallClassifier.classify(operation, 404, "{\"id\":\"L1\"}").variables().get("id"));
+        // The first matching rule wins; 503 falls through to the class rule.
+        assertEquals("LEAD_CONFLICT", CallClassifier.classify(operation, 409, "{}").bpmnErrorCode());
+        assertEquals("UNAVAILABLE", CallClassifier.classify(operation, 503, "{}").bpmnErrorCode());
+        assertEquals("HTTP_ERROR", CallClassifier.classify(operation, 401, "{}").bpmnErrorCode());
+    }
 }
