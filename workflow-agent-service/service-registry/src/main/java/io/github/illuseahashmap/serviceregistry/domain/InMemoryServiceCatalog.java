@@ -9,7 +9,8 @@ import java.util.Optional;
 public final class InMemoryServiceCatalog implements ServiceCatalog {
 
     private final Map<String, ServiceDraft> drafts = new HashMap<>();
-    private final Map<String, List<PublishedOperation>> publications = new HashMap<>();
+    /** Published copies. Draft edits must not mutate these lists or secrets. */
+    private final Map<String, PublishedService> publications = new HashMap<>();
 
     @Override
     public void saveDraft(ServiceDraft draft) {
@@ -22,8 +23,26 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
     @Override
     public void saveService(String serviceKey, String name) {
         ServiceDraft existing = drafts.get(serviceKey);
-        List<PublishedOperation> operations = existing == null ? List.of() : existing.operations();
-        drafts.put(serviceKey, new ServiceDraft(serviceKey, name, operations));
+        if (existing == null) {
+            drafts.put(serviceKey, new ServiceDraft(serviceKey, name, List.of()));
+            return;
+        }
+        // Renaming keeps the connection settings already stored on the draft.
+        drafts.put(serviceKey, copy(existing, name, existing.description(), existing.baseUrls(), existing.sharedAuth(), existing.operations()));
+    }
+
+    @Override
+    public void saveServiceSettings(
+            String serviceKey,
+            String name,
+            String description,
+            List<EnvironmentBaseUrl> baseUrls,
+            AuthConfig sharedAuth) {
+        ServiceDraft existing = drafts.get(serviceKey);
+        if (existing == null) {
+            throw new IllegalArgumentException("Unknown service");
+        }
+        drafts.put(serviceKey, copy(existing, name, description, baseUrls, sharedAuth, existing.operations()));
     }
 
     @Override
@@ -36,6 +55,7 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
         List<PublishedOperation> operations = new ArrayList<>(existing.operations());
         String secret = operation.secret();
         if (secret == null) {
+            // A blank secret on save keeps the secret already stored for this operation.
             secret = operations.stream()
                     .filter(current -> current.operationKey().equals(operation.operationKey()))
                     .findFirst()
@@ -43,20 +63,8 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
                     .orElse(null);
         }
         operations.removeIf(current -> current.operationKey().equals(operation.operationKey()));
-        operations.add(new PublishedOperation(
-                operation.operationKey(),
-                operation.method(),
-                operation.urlTemplate(),
-                operation.authType(),
-                operation.apiKeyHeader(),
-                secret,
-                operation.bodyTemplate(),
-                operation.timeoutMillis(),
-                operation.errorStatusCodes(),
-                operation.bpmnErrorCode(),
-                operation.inputs(),
-                operation.outputs()));
-        drafts.put(serviceKey, new ServiceDraft(serviceKey, existing.name(), List.copyOf(operations)));
+        operations.add(copyOperation(operation, secret));
+        drafts.put(serviceKey, copy(existing, existing.name(), existing.description(), existing.baseUrls(), existing.sharedAuth(), operations));
     }
 
     @Override
@@ -73,7 +81,7 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
         List<PublishedOperation> remaining = existing.operations().stream()
                 .filter(operation -> !operation.operationKey().equals(operationKey))
                 .toList();
-        drafts.put(serviceKey, new ServiceDraft(serviceKey, existing.name(), remaining));
+        drafts.put(serviceKey, copy(existing, existing.name(), existing.description(), existing.baseUrls(), existing.sharedAuth(), remaining));
     }
 
     @Override
@@ -90,18 +98,27 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
         if (draft == null) {
             return;
         }
-        publications.put(serviceKey, List.copyOf(draft.operations()));
+        // Copy into a new snapshot so a later draft edit cannot change this publication.
+        publications.put(serviceKey, new PublishedService(
+                draft.serviceKey(),
+                draft.name(),
+                draft.description(),
+                draft.baseUrls(),
+                draft.sharedAuth(),
+                draft.operations()));
     }
 
     @Override
     public Optional<PublishedOperation> published(String serviceKey, String operationKey) {
-        List<PublishedOperation> operations = publications.get(serviceKey);
-        if (operations == null) {
-            return Optional.empty();
-        }
-        return operations.stream()
-                .filter(operation -> operation.operationKey().equals(operationKey))
-                .findFirst();
+        return publishedService(serviceKey)
+                .flatMap(service -> service.operations().stream()
+                        .filter(operation -> operation.operationKey().equals(operationKey))
+                        .findFirst());
+    }
+
+    @Override
+    public Optional<PublishedService> publishedService(String serviceKey) {
+        return Optional.ofNullable(publications.get(serviceKey));
     }
 
     @Override
@@ -111,33 +128,21 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
             return Optional.empty();
         }
         Map<String, PublishedOperation> published = new HashMap<>();
-        for (PublishedOperation operation : publications.getOrDefault(serviceKey, List.of())) {
-            published.put(operation.operationKey(), operation);
-        }
+        publishedService(serviceKey).ifPresent(service -> {
+            for (PublishedOperation operation : service.operations()) {
+                published.put(operation.operationKey(), operation);
+            }
+        });
         List<OperationView> operations = draft.operations().stream()
-                .map(operation -> {
-                    PublishedOperation snapshot = published.get(operation.operationKey());
-                    return new OperationView(
-                            operation.operationKey(),
-                            operation.method(),
-                            operation.urlTemplate(),
-                            operation.authType(),
-                            operation.apiKeyHeader(),
-                            operation.secret() != null,
-                            operation.bodyTemplate(),
-                            operation.timeoutMillis(),
-                            operation.errorStatusCodes(),
-                            operation.bpmnErrorCode(),
-                            snapshot == null ? null : snapshot.urlTemplate(),
-                            snapshot == null ? null : snapshot.method(),
-                            snapshot == null ? null : snapshot.bpmnErrorCode(),
-                            operation.inputs(),
-                            operation.outputs(),
-                            snapshot == null ? List.of() : snapshot.inputs(),
-                            snapshot == null ? List.of() : snapshot.outputs());
-                })
+                .map(operation -> toView(operation, published.get(operation.operationKey())))
                 .toList();
-        return Optional.of(new ServiceView(draft.serviceKey(), draft.name(), operations));
+        return Optional.of(new ServiceView(
+                draft.serviceKey(),
+                draft.name(),
+                draft.description(),
+                draft.baseUrls(),
+                draft.sharedAuth(),
+                operations));
     }
 
     @Override
@@ -146,5 +151,59 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
                 .map(this::find)
                 .flatMap(Optional::stream)
                 .toList();
+    }
+
+    private static ServiceDraft copy(
+            ServiceDraft existing,
+            String name,
+            String description,
+            List<EnvironmentBaseUrl> baseUrls,
+            AuthConfig sharedAuth,
+            List<PublishedOperation> operations) {
+        return new ServiceDraft(existing.serviceKey(), name, description, baseUrls, sharedAuth, operations);
+    }
+
+    /** Keeps auth mode, both timeouts, and every error rule when the secret is filled in. */
+    private static PublishedOperation copyOperation(PublishedOperation operation, String secret) {
+        return new PublishedOperation(
+                operation.operationKey(),
+                operation.method(),
+                operation.urlTemplate(),
+                operation.authMode(),
+                operation.authType(),
+                operation.apiKeyHeader(),
+                secret,
+                operation.bodyTemplate(),
+                operation.connectTimeoutMillis(),
+                operation.readTimeoutMillis(),
+                operation.errorRules(),
+                operation.successStatuses(),
+                operation.inputs(),
+                operation.outputs());
+    }
+
+    private static OperationView toView(PublishedOperation operation, PublishedOperation snapshot) {
+        return new OperationView(
+                operation.operationKey(),
+                operation.method(),
+                operation.urlTemplate(),
+                operation.authType(),
+                operation.apiKeyHeader(),
+                operation.secret() != null,
+                operation.bodyTemplate(),
+                operation.timeoutMillis(),
+                operation.errorStatusCodes(),
+                operation.bpmnErrorCode(),
+                snapshot == null ? null : snapshot.urlTemplate(),
+                snapshot == null ? null : snapshot.method(),
+                snapshot == null ? null : snapshot.bpmnErrorCode(),
+                operation.inputs(),
+                operation.outputs(),
+                snapshot == null ? List.of() : snapshot.inputs(),
+                snapshot == null ? List.of() : snapshot.outputs(),
+                operation.authMode(),
+                operation.connectTimeoutMillis(),
+                operation.errorRules(),
+                operation.successStatuses());
     }
 }

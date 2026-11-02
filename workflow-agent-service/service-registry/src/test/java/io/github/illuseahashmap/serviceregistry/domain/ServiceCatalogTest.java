@@ -83,6 +83,26 @@ class ServiceCatalogTest {
         assertThrows(IllegalArgumentException.class, () -> catalog.deleteOperation("crm", "createLead"));
     }
 
+    @Test
+    void publishesBaseUrlAndSharedAuthWithoutChangingADraftEdit() {
+        var catalog = new InMemoryServiceCatalog();
+        catalog.saveService("crm", "CRM");
+        catalog.saveServiceSettings("crm", "CRM", "Khách hàng",
+                List.of(new EnvironmentBaseUrl("default", "https://crm.example")),
+                new AuthConfig(AuthType.BEARER, null, "published-secret"));
+        catalog.saveOperation("crm", operation("/leads"));
+        catalog.publish("crm");
+        // A later draft edit must not change the snapshot a process already published.
+        catalog.saveServiceSettings("crm", "CRM", "Nháp",
+                List.of(new EnvironmentBaseUrl("default", "https://draft.example")),
+                new AuthConfig(AuthType.NONE, null, null));
+
+        PublishedService published = catalog.publishedService("crm").orElseThrow();
+        assertEquals("https://crm.example", published.baseUrls().getFirst().url());
+        assertEquals("published-secret", published.sharedAuth().secret());
+        assertEquals("Nháp", catalog.find("crm").orElseThrow().description());
+    }
+
     private static PublishedOperation operation(String url) {
         return operation(url, List.of(), List.of());
     }

@@ -9,6 +9,17 @@ public interface ServiceCatalog {
 
     void saveService(String serviceKey, String name);
 
+    /**
+     * Updates the draft name, description, base URLs, and shared auth.
+     * Does not publish, so a running process keeps the previous snapshot.
+     */
+    void saveServiceSettings(
+            String serviceKey,
+            String name,
+            String description,
+            List<EnvironmentBaseUrl> baseUrls,
+            AuthConfig sharedAuth);
+
     void saveOperation(String serviceKey, PublishedOperation operation);
 
     void publish(String serviceKey);
@@ -18,6 +29,9 @@ public interface ServiceCatalog {
     void deleteService(String serviceKey);
 
     Optional<PublishedOperation> published(String serviceKey, String operationKey);
+
+    /** The last published snapshot, including base URLs and shared auth. */
+    Optional<PublishedService> publishedService(String serviceKey);
 
     Optional<ServiceView> find(String serviceKey);
 
