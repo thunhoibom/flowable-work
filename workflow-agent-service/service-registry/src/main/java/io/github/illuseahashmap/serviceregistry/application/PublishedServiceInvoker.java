@@ -26,7 +26,19 @@ public final class PublishedServiceInvoker {
     }
 
     public Optional<PublishedOperation> findPublished(String serviceKey, String operationKey) {
-        return catalog.published(serviceKey, operationKey);
+        // Resolve shared auth so a bearer variable name is visible before the call.
+        return catalog.publishedService(serviceKey).flatMap(service -> service.operations().stream()
+                .filter(operation -> operation.operationKey().equals(operationKey))
+                .findFirst()
+                .map(operation -> operation.withCredentials(AuthMode.OVERRIDE, AuthInheritance.resolve(
+                        operation.authMode(),
+                        service.sharedAuth(),
+                        new AuthConfig(
+                                operation.authType(),
+                                operation.apiKeyHeader(),
+                                operation.secret(),
+                                operation.apiKeyLocation(),
+                                operation.authDetails())))));
     }
 
     public Map<String, Object> invoke(String serviceKey, String operationKey, Map<String, Object> resolvedInputs) {
@@ -38,10 +50,15 @@ public final class PublishedServiceInvoker {
                 .orElseThrow(() -> new ServiceCallException("SERVICE_NOT_PUBLISHED"));
         String baseUrl = baseUrl(service, operation);
         // Copy the resolved credentials onto the operation. RequestFactory does not know about the service.
-        PublishedOperation effective = withAuth(operation, AuthInheritance.resolve(
+        PublishedOperation effective = operation.withCredentials(AuthMode.OVERRIDE, AuthInheritance.resolve(
                 operation.authMode(),
                 service.sharedAuth(),
-                new AuthConfig(operation.authType(), operation.apiKeyHeader(), operation.secret())));
+                new AuthConfig(
+                        operation.authType(),
+                        operation.apiKeyHeader(),
+                        operation.secret(),
+                        operation.apiKeyLocation(),
+                        operation.authDetails())));
         CallOutcome outcome = caller.call(effective, resolvedInputs == null ? Map.of() : resolvedInputs, baseUrl);
         if (outcome.failed()) {
             throw new ServiceCallException(outcome.bpmnErrorCode());
@@ -65,23 +82,4 @@ public final class PublishedServiceInvoker {
         return path != null && (path.startsWith("https://") || path.startsWith("http://"));
     }
 
-    private static PublishedOperation withAuth(PublishedOperation operation, AuthConfig auth) {
-        AuthConfig resolved = auth == null ? new AuthConfig(AuthType.NONE, null, null) : auth;
-        AuthType type = resolved.type() == null ? AuthType.NONE : resolved.type();
-        return new PublishedOperation(
-                operation.operationKey(),
-                operation.method(),
-                operation.urlTemplate(),
-                AuthMode.OVERRIDE,
-                type,
-                resolved.apiKeyHeader(),
-                resolved.secret(),
-                operation.bodyTemplate(),
-                operation.connectTimeoutMillis(),
-                operation.readTimeoutMillis(),
-                operation.errorRules(),
-                operation.successStatuses(),
-                operation.inputs(),
-                operation.outputs());
-    }
 }

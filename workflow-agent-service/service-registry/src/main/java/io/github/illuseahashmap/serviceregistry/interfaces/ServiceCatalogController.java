@@ -1,6 +1,11 @@
 package io.github.illuseahashmap.serviceregistry.interfaces;
 
+import io.github.illuseahashmap.serviceregistry.domain.ApiKeyLocation;
 import io.github.illuseahashmap.serviceregistry.domain.AuthConfig;
+import io.github.illuseahashmap.serviceregistry.domain.AuthDetails;
+import io.github.illuseahashmap.serviceregistry.domain.BodyPresence;
+import io.github.illuseahashmap.serviceregistry.domain.CallStyle;
+import io.github.illuseahashmap.serviceregistry.domain.ContentType;
 import io.github.illuseahashmap.serviceregistry.domain.AuthMode;
 import io.github.illuseahashmap.serviceregistry.domain.AuthType;
 import io.github.illuseahashmap.serviceregistry.domain.EnvironmentBaseUrl;
@@ -8,13 +13,18 @@ import io.github.illuseahashmap.serviceregistry.domain.ErrorRule;
 import io.github.illuseahashmap.serviceregistry.domain.HttpMethod;
 import io.github.illuseahashmap.serviceregistry.domain.InputParameter;
 import io.github.illuseahashmap.serviceregistry.domain.OutputParameter;
+import io.github.illuseahashmap.serviceregistry.domain.OutputSource;
 import io.github.illuseahashmap.serviceregistry.domain.ParameterLocation;
+import io.github.illuseahashmap.serviceregistry.domain.PartKind;
+import io.github.illuseahashmap.serviceregistry.domain.PaginationMode;
 import io.github.illuseahashmap.serviceregistry.domain.ParameterType;
 import io.github.illuseahashmap.serviceregistry.domain.PublishedOperation;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceCatalog;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceView;
-import java.util.Arrays;
+import io.github.illuseahashmap.serviceregistry.domain.StaticHeader;
+import io.github.illuseahashmap.serviceregistry.domain.StepConfig;
 import io.github.illuseahashmap.workflow.shared.response.ApiResponse;
+import java.util.Arrays;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -65,25 +75,26 @@ public class ServiceCatalogController {
             }
         }
         SharedAuthRequest sharedAuth = request.sharedAuth() == null
-                ? new SharedAuthRequest("NONE", null, null)
+                ? new SharedAuthRequest("NONE", null, null, null, null, null, null, null, null, null, null, null, null)
                 : request.sharedAuth();
         AuthType type = authType(sharedAuth.type());
+        // A missing location keeps the historical header placement.
+        ApiKeyLocation keyLocation = enumValue(sharedAuth.apiKeyLocation(), ApiKeyLocation.HEADER, ApiKeyLocation.class);
         if (type == AuthType.API_KEY && (sharedAuth.apiKeyHeader() == null || sharedAuth.apiKeyHeader().isBlank())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "API key header is required");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    keyLocation == ApiKeyLocation.QUERY ? "API key name is required" : "API key header is required");
         }
-        // A blank secret keeps the secret already stored on the draft.
-        String secret = sharedAuth.secret();
-        if (secret == null || secret.isBlank()) {
-            secret = catalog.find(serviceKey)
-                    .map(ServiceView::sharedAuth)
-                    .map(AuthConfig::secret)
-                    .filter(value -> !value.isBlank())
-                    .orElse(null);
-        }
+        AuthConfig previous = catalog.find(serviceKey).map(ServiceView::sharedAuth).orElse(null);
+        // A blank secret, certificate, or access key keeps the value already stored on the draft.
+        String secret = blank(sharedAuth.secret())
+                ? previous == null ? null : blankToNull(previous.secret())
+                : sharedAuth.secret();
+        AuthDetails details = keepStoredSecrets(authDetails(sharedAuth), previous == null ? null : previous.details());
+        requireExtendedAuth(type, details);
         try {
             catalog.saveServiceSettings(serviceKey, request.name().trim(),
                     request.description() == null ? "" : request.description().trim(),
-                    baseUrls, new AuthConfig(type, sharedAuth.apiKeyHeader(), secret));
+                    baseUrls, new AuthConfig(type, sharedAuth.apiKeyHeader(), secret, keyLocation, details));
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
         }
@@ -118,21 +129,183 @@ public class ServiceCatalogController {
                 : request.errorRules().stream()
                         .map(rule -> new ErrorRule(rule.patterns(), rule.bpmnErrorCode()))
                         .toList();
+        ContentType contentType = enumValue(request.contentType(), ContentType.JSON, ContentType.class);
+        BodyPresence bodyPresence = enumValue(request.bodyPresence(), BodyPresence.CONTENT, BodyPresence.class);
+        ApiKeyLocation keyLocation = enumValue(request.apiKeyLocation(), ApiKeyLocation.HEADER, ApiKeyLocation.class);
+        if (contentType == ContentType.RAW && (request.rawMediaType() == null || request.rawMediaType().isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Media type is required");
+        }
+        List<InputParameter> bodyInputs = inputs(request.inputParameters());
+        if (contentType == ContentType.RAW
+                && bodyInputs.stream().anyMatch(input -> input.location() == ParameterLocation.BODY)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "RAW content does not accept body parameters");
+        }
+        List<StaticHeader> staticHeaders = staticHeaders(request.staticHeaders());
+        AuthType type = AuthType.valueOf(request.authType());
+        AuthDetails details = authDetails(request);
+        if (mode == AuthMode.OVERRIDE) {
+            requireExtendedAuth(type, details);
+        }
+        List<OutputParameter> outputParameters = outputs(request.outputParameters());
         return new PublishedOperation(
                 operationKey,
                 HttpMethod.valueOf(request.method()),
                 request.url(),
                 mode,
-                AuthType.valueOf(request.authType()),
+                type,
                 request.apiKeyHeader(),
-                request.secret(),
+                blankToNull(request.secret()),
                 request.bodyTemplate(),
                 connectTimeout,
                 request.timeoutMillis(),
                 rules,
                 successStatuses(request.successStatuses()),
-                inputs(request.inputParameters()),
-                outputs(request.outputParameters()));
+                bodyInputs,
+                outputParameters,
+                contentType,
+                request.rawMediaType(),
+                staticHeaders,
+                bodyPresence,
+                keyLocation,
+                details,
+                stepConfig(request.steps()));
+    }
+
+    private static StepConfig stepConfig(StepRequest request) {
+        if (request == null) {
+            return StepConfig.sync();
+        }
+        return new StepConfig(
+                enumValue(request.pagination(), PaginationMode.NONE, PaginationMode.class),
+                request.nextField(),
+                request.nextTokenParameter(),
+                request.maxPages() == null ? 0 : request.maxPages(),
+                enumValue(request.callStyle(), CallStyle.SYNC, CallStyle.class),
+                request.correlationOutput(),
+                request.waitTimeoutMillis() == null ? 0 : request.waitTimeoutMillis());
+    }
+
+    private static AuthDetails authDetails(SharedAuthRequest request) {
+        return authDetails(
+                request.bearerVariable(),
+                request.tokenUrl(),
+                request.clientId(),
+                request.scopes(),
+                request.certificate(),
+                request.signatureHeader(),
+                request.accessKey(),
+                request.region(),
+                request.awsService());
+    }
+
+    private static AuthDetails authDetails(SaveOperationRequest request) {
+        return authDetails(
+                request.bearerVariable(),
+                request.tokenUrl(),
+                request.clientId(),
+                request.scopes(),
+                request.certificate(),
+                request.signatureHeader(),
+                request.accessKey(),
+                request.region(),
+                request.awsService());
+    }
+
+    private static AuthDetails authDetails(
+            String bearerVariable,
+            String tokenUrl,
+            String clientId,
+            String scopes,
+            String certificate,
+            String signatureHeader,
+            String accessKey,
+            String region,
+            String awsService) {
+        return new AuthDetails(
+                blankToNull(tokenUrl),
+                blankToNull(clientId),
+                splitScopes(scopes),
+                blankToNull(certificate),
+                blankToNull(bearerVariable),
+                blankToNull(accessKey),
+                blankToNull(region),
+                blankToNull(awsService),
+                blankToNull(signatureHeader));
+    }
+
+    private static AuthDetails keepStoredSecrets(AuthDetails incoming, AuthDetails stored) {
+        if (stored == null) {
+            return incoming;
+        }
+        return new AuthDetails(
+                incoming.tokenUrl(),
+                incoming.clientId(),
+                incoming.scopes(),
+                incoming.certificatePem() == null ? stored.certificatePem() : incoming.certificatePem(),
+                incoming.bearerVariable(),
+                incoming.accessKey() == null ? stored.accessKey() : incoming.accessKey(),
+                incoming.region(),
+                incoming.awsService(),
+                incoming.signatureHeader());
+    }
+
+    private static void requireExtendedAuth(AuthType type, AuthDetails details) {
+        if (type == AuthType.BEARER_VARIABLE && blank(details.bearerVariable())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bearer variable is required");
+        }
+        if (type == AuthType.OAUTH2_CLIENT && blank(details.tokenUrl())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token URL is required");
+        }
+        if (type == AuthType.OAUTH2_CLIENT && blank(details.clientId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Client id is required");
+        }
+        if (type == AuthType.HMAC && blank(details.signatureHeader())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Signature header is required");
+        }
+        if (type == AuthType.AWS_SIG_V4 && blank(details.region())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Region is required");
+        }
+        if (type == AuthType.AWS_SIG_V4 && blank(details.awsService())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Service name is required");
+        }
+    }
+
+    private static List<String> splitScopes(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(",")).map(String::trim).filter(value -> !value.isEmpty()).toList();
+    }
+
+    private static String blankToNull(String value) {
+        return blank(value) ? null : value;
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static List<StaticHeader> staticHeaders(List<StaticHeaderRequest> headers) {
+        if (headers == null) {
+            return List.of();
+        }
+        for (StaticHeaderRequest header : headers) {
+            if (header == null || header.name() == null || header.name().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Static header name is required");
+            }
+        }
+        return headers.stream().map(header -> new StaticHeader(header.name().trim(), header.value())).toList();
+    }
+
+    private static <T extends Enum<T>> T enumValue(String raw, T fallback, Class<T> type) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Enum.valueOf(type, raw);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported value");
+        }
     }
 
     private static AuthType authType(String raw) {
@@ -154,12 +327,26 @@ public class ServiceCatalogController {
     private static ServiceResponse response(ServiceView view) {
         AuthConfig auth = view.sharedAuth();
         boolean secretPresent = auth.secret() != null && !auth.secret().isBlank();
+        AuthDetails details = auth.details();
         return new ServiceResponse(
                 view.serviceKey(),
                 view.name(),
                 view.description(),
                 view.baseUrls(),
-                new SharedAuthResponse(auth.type(), auth.apiKeyHeader(), secretPresent),
+                new SharedAuthResponse(
+                        auth.type(),
+                        auth.apiKeyHeader(),
+                        secretPresent,
+                        auth.apiKeyLocation(),
+                        details.bearerVariable(),
+                        details.tokenUrl(),
+                        details.clientId(),
+                        details.scopes(),
+                        details.certificatePem() != null && !details.certificatePem().isBlank(),
+                        details.signatureHeader(),
+                        details.accessKey() != null && !details.accessKey().isBlank(),
+                        details.region(),
+                        details.awsService()),
                 view.operations());
     }
 
@@ -172,7 +359,10 @@ public class ServiceCatalogController {
                         parameter.name(),
                         ParameterType.valueOf(parameter.type()),
                         parameter.required(),
-                        ParameterLocation.valueOf(parameter.location())))
+                        ParameterLocation.valueOf(parameter.location()),
+                        parameter.partKind() == null || parameter.partKind().isBlank()
+                                ? PartKind.TEXT
+                                : PartKind.valueOf(parameter.partKind())))
                 .toList();
     }
 
@@ -184,7 +374,11 @@ public class ServiceCatalogController {
                 .map(parameter -> new OutputParameter(
                         parameter.name(),
                         ParameterType.valueOf(parameter.type()),
-                        parameter.jsonField()))
+                        parameter.jsonField(),
+                        parameter.source() == null || parameter.source().isBlank()
+                                ? OutputSource.JSON_FIELD
+                                : OutputSource.valueOf(parameter.source()),
+                        blankToNull(parameter.headerName())))
                 .toList();
     }
 
@@ -231,7 +425,20 @@ public class ServiceCatalogController {
     ) {
     }
 
-    public record SharedAuthRequest(String type, String apiKeyHeader, String secret) {
+    public record SharedAuthRequest(
+            String type,
+            String apiKeyHeader,
+            String secret,
+            String apiKeyLocation,
+            String bearerVariable,
+            String tokenUrl,
+            String clientId,
+            String scopes,
+            String certificate,
+            String signatureHeader,
+            String accessKey,
+            String region,
+            String awsService) {
     }
 
     public record ServiceResponse(
@@ -245,7 +452,20 @@ public class ServiceCatalogController {
     }
 
     /** Auth returned to the browser. The secret itself is never included. */
-    public record SharedAuthResponse(AuthType type, String apiKeyHeader, boolean secretPresent) {
+    public record SharedAuthResponse(
+            AuthType type,
+            String apiKeyHeader,
+            boolean secretPresent,
+            ApiKeyLocation apiKeyLocation,
+            String bearerVariable,
+            String tokenUrl,
+            String clientId,
+            List<String> scopes,
+            boolean certificatePresent,
+            String signatureHeader,
+            boolean accessKeyPresent,
+            String region,
+            String awsService) {
     }
 
     public record SaveOperationRequest(
@@ -263,16 +483,46 @@ public class ServiceCatalogController {
             String authMode,
             Integer connectTimeoutMillis,
             List<ErrorRuleRequest> errorRules,
-            String successStatuses
+            String successStatuses,
+            String contentType,
+            String rawMediaType,
+            List<StaticHeaderRequest> staticHeaders,
+            String bodyPresence,
+            String apiKeyLocation,
+            String bearerVariable,
+            String tokenUrl,
+            String clientId,
+            String scopes,
+            String certificate,
+            String signatureHeader,
+            String accessKey,
+            String region,
+            String awsService,
+            StepRequest steps
     ) {
+    }
+
+    public record StepRequest(
+            String pagination,
+            String nextField,
+            String nextTokenParameter,
+            Integer maxPages,
+            String callStyle,
+            String correlationOutput,
+            Integer waitTimeoutMillis) {
+    }
+
+    public record StaticHeaderRequest(String name, String value) {
     }
 
     public record ErrorRuleRequest(List<String> patterns, String bpmnErrorCode) {
     }
 
-    public record InputParameterRequest(String name, String type, boolean required, String location) {
+    public record InputParameterRequest(
+            String name, String type, boolean required, String location, String partKind) {
     }
 
-    public record OutputParameterRequest(String name, String type, String jsonField) {
+    public record OutputParameterRequest(
+            String name, String type, String jsonField, String source, String headerName) {
     }
 }

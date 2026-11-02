@@ -15,7 +15,7 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
     @Override
     public void saveDraft(ServiceDraft draft) {
         for (PublishedOperation operation : draft.operations()) {
-            ParameterContracts.check(operation.inputs(), operation.outputs());
+            ParameterContracts.check(operation);
         }
         drafts.put(draft.serviceKey(), draft);
     }
@@ -47,23 +47,23 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
 
     @Override
     public void saveOperation(String serviceKey, PublishedOperation operation) {
-        ParameterContracts.check(operation.inputs(), operation.outputs());
+        ParameterContracts.check(operation);
         ServiceDraft existing = drafts.get(serviceKey);
         if (existing == null) {
             throw new IllegalArgumentException("Unknown service");
         }
         List<PublishedOperation> operations = new ArrayList<>(existing.operations());
-        String secret = operation.secret();
-        if (secret == null) {
-            // A blank secret on save keeps the secret already stored for this operation.
-            secret = operations.stream()
-                    .filter(current -> current.operationKey().equals(operation.operationKey()))
-                    .findFirst()
-                    .map(PublishedOperation::secret)
-                    .orElse(null);
-        }
+        PublishedOperation stored = operations.stream()
+                .filter(current -> current.operationKey().equals(operation.operationKey()))
+                .findFirst()
+                .orElse(null);
+        // A blank secret, certificate, or access key keeps the value already stored.
+        String secret = operation.secret() == null && stored != null ? stored.secret() : operation.secret();
+        AuthDetails details = keepStoredSecrets(operation.authDetails(), stored == null ? null : stored.authDetails());
         operations.removeIf(current -> current.operationKey().equals(operation.operationKey()));
-        operations.add(copyOperation(operation, secret));
+        operations.add(operation.withCredentials(
+                operation.authMode(),
+                new AuthConfig(operation.authType(), operation.apiKeyHeader(), secret, operation.apiKeyLocation(), details)));
         drafts.put(serviceKey, copy(existing, existing.name(), existing.description(), existing.baseUrls(), existing.sharedAuth(), operations));
     }
 
@@ -163,23 +163,20 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
         return new ServiceDraft(existing.serviceKey(), name, description, baseUrls, sharedAuth, operations);
     }
 
-    /** Keeps auth mode, both timeouts, and every error rule when the secret is filled in. */
-    private static PublishedOperation copyOperation(PublishedOperation operation, String secret) {
-        return new PublishedOperation(
-                operation.operationKey(),
-                operation.method(),
-                operation.urlTemplate(),
-                operation.authMode(),
-                operation.authType(),
-                operation.apiKeyHeader(),
-                secret,
-                operation.bodyTemplate(),
-                operation.connectTimeoutMillis(),
-                operation.readTimeoutMillis(),
-                operation.errorRules(),
-                operation.successStatuses(),
-                operation.inputs(),
-                operation.outputs());
+    private static AuthDetails keepStoredSecrets(AuthDetails incoming, AuthDetails stored) {
+        if (stored == null) {
+            return incoming;
+        }
+        return new AuthDetails(
+                incoming.tokenUrl(),
+                incoming.clientId(),
+                incoming.scopes(),
+                incoming.certificatePem() == null ? stored.certificatePem() : incoming.certificatePem(),
+                incoming.bearerVariable(),
+                incoming.accessKey() == null ? stored.accessKey() : incoming.accessKey(),
+                incoming.region(),
+                incoming.awsService(),
+                incoming.signatureHeader());
     }
 
     private static OperationView toView(PublishedOperation operation, PublishedOperation snapshot) {
@@ -204,6 +201,27 @@ public final class InMemoryServiceCatalog implements ServiceCatalog {
                 operation.authMode(),
                 operation.connectTimeoutMillis(),
                 operation.errorRules(),
-                operation.successStatuses());
+                operation.successStatuses(),
+                operation.contentType(),
+                operation.rawMediaType(),
+                operation.staticHeaders(),
+                operation.bodyPresence(),
+                operation.apiKeyLocation(),
+                operation.authDetails().bearerVariable(),
+                operation.authDetails().tokenUrl(),
+                operation.authDetails().clientId(),
+                operation.authDetails().scopes(),
+                present(operation.authDetails().certificatePem()),
+                operation.authDetails().signatureHeader(),
+                present(operation.authDetails().accessKey()),
+                operation.authDetails().region(),
+                operation.authDetails().awsService(),
+                snapshot == null || snapshot.contentType() == null ? null : snapshot.contentType().name(),
+                operation.steps(),
+                snapshot == null ? null : snapshot.steps());
+    }
+
+    private static boolean present(String value) {
+        return value != null && !value.isBlank();
     }
 }

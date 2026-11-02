@@ -188,7 +188,7 @@ function handleStarted(result: StartProcessResult) {
             formatDuration(row.durationInMillis)
           }}</template></el-table-column
         >
-        <el-table-column label="Thao tác" width="170" fixed="right"
+        <el-table-column label="Thao tác" width="216" fixed="right"
           ><template #default="{ row }">
             <el-button
               link

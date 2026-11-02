@@ -8,6 +8,7 @@ import io.github.illuseahashmap.workflow.process.application.ServiceParameterExc
 import io.github.illuseahashmap.workflow.process.application.port.PublishedCallContract;
 import io.github.illuseahashmap.workflow.process.application.port.ServiceInputContract;
 import io.github.illuseahashmap.workflow.process.application.port.ServiceOutputContract;
+import io.github.illuseahashmap.workflow.process.application.port.ServiceCallbackRegistry;
 import io.github.illuseahashmap.workflow.process.application.port.ServiceRegistryCallException;
 import io.github.illuseahashmap.workflow.process.application.port.ServiceRegistryGateway;
 import java.util.LinkedHashMap;
@@ -15,11 +16,14 @@ import java.util.List;
 import java.util.Map;
 import org.flowable.bpmn.model.ExtensionElement;
 import org.flowable.bpmn.model.FlowElement;
+import org.flowable.bpmn.model.ServiceTask;
 import org.flowable.common.engine.impl.el.ExpressionManager;
 import org.flowable.engine.delegate.BpmnError;
 import org.flowable.engine.delegate.DelegateExecution;
 import org.flowable.engine.delegate.JavaDelegate;
 import org.flowable.engine.impl.cfg.ProcessEngineConfigurationImpl;
+import org.flowable.engine.impl.persistence.entity.ExecutionEntity;
+import org.flowable.engine.impl.util.CommandContextUtil;
 import org.springframework.stereotype.Component;
 
 @Component("serviceRegistryDelegate")
@@ -29,11 +33,16 @@ public class ServiceRegistryDelegate implements JavaDelegate {
 
     private final ServiceRegistryGateway gateway;
     private final ExpressionManager expressionManager;
+    private final ServiceCallbackRegistry callbacks;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public ServiceRegistryDelegate(ServiceRegistryGateway gateway, ProcessEngineConfigurationImpl configuration) {
+    public ServiceRegistryDelegate(
+            ServiceRegistryGateway gateway,
+            ProcessEngineConfigurationImpl configuration,
+            ServiceCallbackRegistry callbacks) {
         this.gateway = gateway;
         this.expressionManager = configuration.getExpressionManager();
+        this.callbacks = callbacks;
     }
 
     @Override
@@ -46,14 +55,66 @@ public class ServiceRegistryDelegate implements JavaDelegate {
         Map<String, String> expressions = readField(attribute(binding, "inputMapping"), "expression");
         Map<String, String> variables = readField(attribute(binding, "outputMapping"), "variable");
         Map<String, Object> resolved = resolveInputs(execution, serviceKey, operationKey, contract, expressions);
+        // The bearer token is a process variable, not an input mapped on the node.
+        if (contract.bearerVariable() != null
+                && !contract.bearerVariable().isBlank()
+                && !resolved.containsKey(contract.bearerVariable())) {
+            Object token = execution.getVariable(contract.bearerVariable());
+            if (token != null) {
+                resolved.put(contract.bearerVariable(), token);
+            }
+        }
         Map<String, Object> result;
         try {
             result = gateway.invoke(serviceKey, operationKey, resolved);
         } catch (ServiceRegistryCallException exception) {
             throw new BpmnError(exception.bpmnErrorCode());
         }
+        if ("CALLBACK".equals(contract.callStyle())) {
+            waitForCallback(execution, serviceKey, operationKey, contract, variables, result);
+            return;
+        }
         Map<String, Object> outputs = coerceOutputs(serviceKey, operationKey, contract, variables, result);
         outputs.forEach(execution::setVariable);
+        // A triggerable task does not leave on its own. Sync calls continue immediately.
+        continueTriggerable(execution);
+    }
+
+    private void waitForCallback(DelegateExecution execution,
+                                 String serviceKey,
+                                 String operationKey,
+                                 PublishedCallContract contract,
+                                 Map<String, String> outputVariables,
+                                 Map<String, Object> result) {
+        if (!(execution.getCurrentFlowElement() instanceof ServiceTask task) || !task.isTriggerable()) {
+            throw new ServiceParameterException(failure(
+                    serviceKey, operationKey, contract.correlationOutput(), "service task must stay open for a callback"));
+        }
+        Object raw = result.get(contract.correlationOutput());
+        if (!(raw instanceof String || raw instanceof Number || raw instanceof Boolean)) {
+            throw new ServiceParameterException(failure(
+                    serviceKey, operationKey, contract.correlationOutput(), "correlation id is required"));
+        }
+        if (callbacks == null) {
+            throw new ServiceParameterException(failure(
+                    serviceKey, operationKey, contract.correlationOutput(), "callback wait is not available"));
+        }
+        callbacks.register(
+                String.valueOf(raw).trim(),
+                execution.getId(),
+                serviceKey,
+                operationKey,
+                outputVariables,
+                contract.waitTimeoutMillis());
+    }
+
+    private static void continueTriggerable(DelegateExecution execution) {
+        if (!(execution.getCurrentFlowElement() instanceof ServiceTask task) || !task.isTriggerable()) {
+            return;
+        }
+        if (execution instanceof ExecutionEntity entity && CommandContextUtil.getCommandContext() != null) {
+            CommandContextUtil.getAgenda().planTriggerExecutionOperation(entity);
+        }
     }
 
     private Map<String, Object> resolveInputs(DelegateExecution execution,

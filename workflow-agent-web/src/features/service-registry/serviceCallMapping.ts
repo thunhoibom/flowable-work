@@ -9,6 +9,8 @@ export interface ServiceOutputParameter {
   name: string
   type: string
   jsonField: string
+  source?: string
+  headerName?: string
 }
 
 export interface ServiceInputRow extends ServiceInputParameter {

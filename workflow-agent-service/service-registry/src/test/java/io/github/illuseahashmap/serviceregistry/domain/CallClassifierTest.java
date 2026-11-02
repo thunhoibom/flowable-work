@@ -53,4 +53,39 @@ class CallClassifierTest {
         assertEquals("UNAVAILABLE", CallClassifier.classify(operation, 503, "{}").bpmnErrorCode());
         assertEquals("HTTP_ERROR", CallClassifier.classify(operation, 401, "{}").bpmnErrorCode());
     }
+
+    @Test
+    void readsStatusHeaderAndRawBodyWhenThePayloadIsNotJson() {
+        var operation = new PublishedOperation(
+                "download", HttpMethod.GET, "https://files.example/report",
+                AuthType.NONE, null, null, null, 1000, List.of(), "HTTP_ERROR",
+                List.of(),
+                List.of(
+                        new OutputParameter("id", ParameterType.STRING, "id"),
+                        new OutputParameter("body", ParameterType.STRING, null, OutputSource.RAW_BODY, null),
+                        new OutputParameter("status", ParameterType.INTEGER, null, OutputSource.STATUS, null),
+                        new OutputParameter("type", ParameterType.STRING, null, OutputSource.RESPONSE_HEADER, "Content-Type")));
+        var xml = CallClassifier.classify(operation, new TransportResponse(
+                200,
+                "<report>ok</report>",
+                Map.of("Content-Type", "application/xml"),
+                "<report>ok</report>".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        assertFalse(xml.variables().containsKey("id"));
+        assertEquals("<report>ok</report>", xml.variables().get("body"));
+        assertEquals(200, xml.variables().get("status"));
+        assertEquals("application/xml", xml.variables().get("type"));
+
+        byte[] file = new byte[] {1, 2, 3};
+        var downloaded = CallClassifier.classify(operation, new TransportResponse(
+                200,
+                "ignored",
+                Map.of("Content-Type", "application/octet-stream"),
+                file));
+        assertEquals(java.util.Base64.getEncoder().encodeToString(file), downloaded.variables().get("body"));
+
+        var failed = CallClassifier.classify(operation, new TransportResponse(
+                500, "<e/>", Map.of("Content-Type", "application/xml"), new byte[] {1}));
+        assertEquals("HTTP_ERROR", failed.bpmnErrorCode());
+        assertEquals(Map.of(), failed.variables());
+    }
 }

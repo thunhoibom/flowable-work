@@ -182,7 +182,21 @@ describe('ServiceCatalogView', () => {
       name: 'CRM',
       description: 'Khách hàng',
       baseUrls: [{ environment: 'default', url: 'https://crm.example' }],
-      sharedAuth: { type: 'BEARER', apiKeyHeader: '', secret: '' },
+          sharedAuth: {
+            type: 'BEARER',
+            apiKeyHeader: '',
+            secret: '',
+            apiKeyLocation: 'HEADER',
+            bearerVariable: '',
+            tokenUrl: '',
+            clientId: '',
+            scopes: '',
+            certificate: '',
+            signatureHeader: '',
+            accessKey: '',
+            region: '',
+            awsService: '',
+          },
     })
   })
 

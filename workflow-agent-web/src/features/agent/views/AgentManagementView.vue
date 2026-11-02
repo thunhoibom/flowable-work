@@ -575,7 +575,7 @@ function failureCategoryLabel(category: string) {
                     formatDateTime(row.updatedAt)
                   }}</template></el-table-column
                 >
-                <el-table-column label="Thao tác" width="260" fixed="right"
+                <el-table-column label="Thao tác" width="300" fixed="right"
                   ><template #default="{ row }"
                     ><el-button
                       v-if="canExecuteRuns"
@@ -725,7 +725,7 @@ function failureCategoryLabel(category: string) {
                     formatDateTime(row.createdAt)
                   }}</template></el-table-column
                 >
-                <el-table-column label="Thao tác" width="90" fixed="right"
+                <el-table-column label="Thao tác" width="112" fixed="right"
                   ><template #default="{ row }"
                     ><el-button link type="primary" @click="openRunDetail(row)"
                       >Chi tiết</el-button
@@ -1205,7 +1205,7 @@ function failureCategoryLabel(category: string) {
             formatDateTime(row.publishedAt)
           }}</template></el-table-column
         >
-        <el-table-column label="Thao tác" width="150" fixed="right"
+        <el-table-column label="Thao tác" width="200" fixed="right"
           ><template #default="{ row }"
             ><el-button
               v-if="row.status === 'DRAFT'"
@@ -1443,23 +1443,10 @@ function failureCategoryLabel(category: string) {
 .filter-form--agent {
   flex: 1;
   grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.55fr) max-content !important;
-  align-items: center;
+  align-items: end;
 }
 .filter-form--agent > .el-form-item:not(.filter-form__actions) {
-  align-items: center;
-}
-.filter-form--agent > .el-form-item:not(.filter-form__actions) .el-form-item__label {
-  min-width: 48px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  line-height: 1.4;
-}
-.filter-form--agent > .el-form-item:not(.filter-form__actions) .el-form-item__content {
-  height: 36px;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
+  align-items: stretch;
 }
 .agent-table-panel {
   min-height: 0;

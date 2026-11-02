@@ -3,7 +3,11 @@ package io.github.illuseahashmap.serviceregistry.infrastructure;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.illuseahashmap.serviceregistry.domain.ApiKeyLocation;
 import io.github.illuseahashmap.serviceregistry.domain.AuthConfig;
+import io.github.illuseahashmap.serviceregistry.domain.AuthDetails;
+import io.github.illuseahashmap.serviceregistry.domain.BodyPresence;
+import io.github.illuseahashmap.serviceregistry.domain.ContentType;
 import io.github.illuseahashmap.serviceregistry.domain.AuthMode;
 import io.github.illuseahashmap.serviceregistry.domain.AuthType;
 import io.github.illuseahashmap.serviceregistry.domain.EnvironmentBaseUrl;
@@ -18,6 +22,8 @@ import io.github.illuseahashmap.serviceregistry.domain.PublishedService;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceCatalog;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceDraft;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceView;
+import io.github.illuseahashmap.serviceregistry.domain.StepConfig;
+import io.github.illuseahashmap.serviceregistry.domain.StaticHeader;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +48,8 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
     private static final TypeReference<List<ErrorRule>> RULES = new TypeReference<>() {
     };
     private static final TypeReference<List<EnvironmentBaseUrl>> BASE_URLS = new TypeReference<>() {
+    };
+    private static final TypeReference<List<StaticHeader>> STATIC_HEADERS = new TypeReference<>() {
     };
 
     private final JdbcTemplate jdbc;
@@ -90,7 +98,7 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
 
     @Override
     public void saveOperation(String serviceKey, PublishedOperation operation) {
-        ParameterContracts.check(operation.inputs(), operation.outputs());
+        ParameterContracts.check(operation);
         Integer definitions = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM service_definition WHERE service_key = ?",
                 Integer.class,
@@ -103,8 +111,9 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                     service_key, operation_key, method, url_template, auth_type, api_key_header,
                     secret_cipher, body_template, timeout_millis, error_status_codes, bpmn_error_code,
                     input_parameters_json, output_parameters_json, auth_mode, connect_timeout_millis,
-                    error_rules_json, success_statuses, call_policy_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error_rules_json, success_statuses, call_policy_json, content_type, raw_media_type,
+                    static_headers_json, body_presence, api_key_location, auth_details_json, step_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (service_key, operation_key) DO UPDATE SET
                     method = EXCLUDED.method,
                     url_template = EXCLUDED.url_template,
@@ -121,7 +130,14 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                     connect_timeout_millis = EXCLUDED.connect_timeout_millis,
                     error_rules_json = EXCLUDED.error_rules_json,
                     success_statuses = EXCLUDED.success_statuses,
-                    call_policy_json = EXCLUDED.call_policy_json
+                    call_policy_json = EXCLUDED.call_policy_json,
+                    content_type = EXCLUDED.content_type,
+                    raw_media_type = EXCLUDED.raw_media_type,
+                    static_headers_json = EXCLUDED.static_headers_json,
+                    body_presence = EXCLUDED.body_presence,
+                    api_key_location = EXCLUDED.api_key_location,
+                    auth_details_json = EXCLUDED.auth_details_json,
+                    step_json = EXCLUDED.step_json
                 """,
                 operationArguments(serviceKey, operation));
     }
@@ -129,7 +145,7 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
     @Override
     public void saveDraft(ServiceDraft draft) {
         for (PublishedOperation operation : draft.operations()) {
-            ParameterContracts.check(operation.inputs(), operation.outputs());
+            ParameterContracts.check(operation);
         }
         transactions.executeWithoutResult(status -> {
             jdbc.update("""
@@ -144,8 +160,9 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                             service_key, operation_key, method, url_template, auth_type, api_key_header,
                             secret_cipher, body_template, timeout_millis, error_status_codes, bpmn_error_code,
                             input_parameters_json, output_parameters_json, auth_mode, connect_timeout_millis,
-                            error_rules_json, success_statuses, call_policy_json)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            error_rules_json, success_statuses, call_policy_json, content_type, raw_media_type,
+                            static_headers_json, body_presence, api_key_location, auth_details_json, step_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         operationArguments(draft.serviceKey(), operation));
             }
@@ -283,7 +300,14 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                 operation.connectTimeoutMillis(),
                 writeJson(operation.errorRules()),
                 String.join(",", operation.successStatuses()),
-                STORED_CALL_POLICY
+                STORED_CALL_POLICY,
+                operation.contentType().name(),
+                operation.rawMediaType() == null ? "" : operation.rawMediaType(),
+                writeJson(operation.staticHeaders()),
+                operation.bodyPresence().name(),
+                operation.apiKeyLocation().name(),
+                writeJson(storedDetails(serviceKey, operation)),
+                writeJson(operation.steps() == null ? StepConfig.sync() : operation.steps())
         };
     }
 
@@ -306,7 +330,8 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                 SELECT operation_key, method, url_template, auth_type, api_key_header, secret_cipher,
                        body_template, timeout_millis, error_status_codes, bpmn_error_code,
                        input_parameters_json, output_parameters_json, auth_mode, connect_timeout_millis,
-                       error_rules_json, success_statuses
+                       error_rules_json, success_statuses, content_type, raw_media_type,
+                       static_headers_json, body_presence, api_key_location, auth_details_json, step_json
                 FROM service_operation_draft
                 WHERE service_key = ?
                 """, (resultSet, row) -> {
@@ -333,7 +358,14 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                     resultSet.getString("auth_mode"),
                     resultSet.getInt("connect_timeout_millis"),
                     rules,
-                    splitCodes(resultSet.getString("success_statuses")));
+                    splitCodes(resultSet.getString("success_statuses")),
+                    resultSet.getString("content_type"),
+                    resultSet.getString("raw_media_type"),
+                    readJson(resultSet.getString("static_headers_json"), STATIC_HEADERS),
+                    resultSet.getString("body_presence"),
+                    resultSet.getString("api_key_location"),
+                    readDetails(resultSet.getString("auth_details_json")),
+                    readStep(resultSet.getString("step_json")));
         }, serviceKey);
     }
 
@@ -372,7 +404,7 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                 .toList();
     }
 
-    private static PublishedOperation toOperation(StoredOperation stored, String secret) {
+    private PublishedOperation toOperation(StoredOperation stored, String secret) {
         List<ErrorRule> rules = stored.errorRules() == null || stored.errorRules().isEmpty()
                 ? List.of(new ErrorRule(emptyIfNull(stored.errorStatusCodes()), stored.bpmnErrorCode()))
                 : stored.errorRules();
@@ -396,10 +428,24 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                 rules,
                 emptyIfNull(stored.successStatuses()),
                 emptyIfNull(stored.inputParameters()),
-                emptyIfNull(stored.outputParameters()));
+                emptyIfNull(stored.outputParameters()),
+                enumOr(stored.contentType(), ContentType.JSON, ContentType.class),
+                stored.rawMediaType(),
+                emptyIfNull(stored.staticHeaders()),
+                enumOr(stored.bodyPresence(), BodyPresence.CONTENT, BodyPresence.class),
+                enumOr(stored.apiKeyLocation(), ApiKeyLocation.HEADER, ApiKeyLocation.class),
+                decryptDetails(stored.authDetails()),
+                stored.step() == null ? StepConfig.sync() : stored.step());
     }
 
-    private static OperationView toView(StoredOperation stored, PublishedOperation snapshot) {
+    private static <T extends Enum<T>> T enumOr(String raw, T fallback, Class<T> type) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        return Enum.valueOf(type, raw);
+    }
+
+    private OperationView toView(StoredOperation stored, PublishedOperation snapshot) {
         PublishedOperation draft = toOperation(stored, null);
         return new OperationView(
                 draft.operationKey(),
@@ -422,23 +468,62 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
                 draft.authMode(),
                 draft.connectTimeoutMillis(),
                 draft.errorRules(),
-                draft.successStatuses());
+                draft.successStatuses(),
+                draft.contentType(),
+                draft.rawMediaType(),
+                draft.staticHeaders(),
+                draft.bodyPresence(),
+                draft.apiKeyLocation(),
+                draft.authDetails().bearerVariable(),
+                draft.authDetails().tokenUrl(),
+                draft.authDetails().clientId(),
+                draft.authDetails().scopes(),
+                present(draft.authDetails().certificatePem()),
+                draft.authDetails().signatureHeader(),
+                present(draft.authDetails().accessKey()),
+                draft.authDetails().region(),
+                draft.authDetails().awsService(),
+                snapshot == null || snapshot.contentType() == null ? null : snapshot.contentType().name(),
+                draft.steps(),
+                snapshot == null ? null : snapshot.steps());
+    }
+
+    private static boolean present(String value) {
+        return value != null && !value.isBlank();
     }
 
     private StoredAuth storedAuth(AuthConfig auth) {
         AuthConfig value = auth == null ? new AuthConfig(AuthType.NONE, null, null) : auth;
         AuthType type = value.type() == null ? AuthType.NONE : value.type();
         // The cipher is what gets stored. The plaintext secret never goes into the row or the snapshot.
-        return new StoredAuth(type.name(), value.apiKeyHeader(), encrypt(value.secret()));
+        AuthDetails details = value.details();
+        return new StoredAuth(
+                type.name(),
+                value.apiKeyHeader(),
+                encrypt(value.secret()),
+                value.apiKeyLocation().name(),
+                details.tokenUrl(),
+                details.clientId(),
+                details.scopes(),
+                encrypt(details.certificatePem()),
+                details.bearerVariable(),
+                encrypt(details.accessKey()),
+                details.region(),
+                details.awsService(),
+                details.signatureHeader());
     }
 
     private StoredAuth readAuth(String json) {
         if (json == null || json.isBlank()) {
-            return new StoredAuth(AuthType.NONE.name(), null, null);
+            return new StoredAuth(AuthType.NONE.name(), null, null, ApiKeyLocation.HEADER.name(),
+                    null, null, List.of(), null, null, null, null, null, null);
         }
         try {
             StoredAuth stored = objectMapper.readValue(json, StoredAuth.class);
-            return stored == null ? new StoredAuth(AuthType.NONE.name(), null, null) : stored;
+            return stored == null
+                    ? new StoredAuth(AuthType.NONE.name(), null, null, ApiKeyLocation.HEADER.name(),
+                            null, null, List.of(), null, null, null, null, null, null)
+                    : stored;
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Unable to read shared service auth", exception);
         }
@@ -448,7 +533,85 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
         if (stored == null || stored.type() == null) {
             return new AuthConfig(AuthType.NONE, null, null);
         }
-        return new AuthConfig(AuthType.valueOf(stored.type()), stored.apiKeyHeader(), decrypt(stored.secretCipher()));
+        return new AuthConfig(
+                AuthType.valueOf(stored.type()),
+                stored.apiKeyHeader(),
+                decrypt(stored.secretCipher()),
+                enumOr(stored.apiKeyLocation(), ApiKeyLocation.HEADER, ApiKeyLocation.class),
+                new AuthDetails(
+                        stored.tokenUrl(),
+                        stored.clientId(),
+                        stored.scopes(),
+                        decrypt(stored.certificateCipher()),
+                        stored.bearerVariable(),
+                        decrypt(stored.accessKeyCipher()),
+                        stored.region(),
+                        stored.awsService(),
+                        stored.signatureHeader()));
+    }
+
+    private StoredAuthDetails storedDetails(String serviceKey, PublishedOperation operation) {
+        AuthDetails incoming = operation.authDetails();
+        AuthDetails stored = readStoredDetails(serviceKey, operation.operationKey());
+        AuthDetails merged = new AuthDetails(
+                incoming.tokenUrl(),
+                incoming.clientId(),
+                incoming.scopes(),
+                incoming.certificatePem() == null ? stored.certificatePem() : incoming.certificatePem(),
+                incoming.bearerVariable(),
+                incoming.accessKey() == null ? stored.accessKey() : incoming.accessKey(),
+                incoming.region(),
+                incoming.awsService(),
+                incoming.signatureHeader());
+        return new StoredAuthDetails(
+                merged.tokenUrl(),
+                merged.clientId(),
+                merged.scopes(),
+                encrypt(merged.certificatePem()),
+                merged.bearerVariable(),
+                encrypt(merged.accessKey()),
+                merged.region(),
+                merged.awsService(),
+                merged.signatureHeader());
+    }
+
+    private AuthDetails readStoredDetails(String serviceKey, String operationKey) {
+        List<String> rows = jdbc.query(
+                "SELECT auth_details_json FROM service_operation_draft WHERE service_key = ? AND operation_key = ?",
+                (resultSet, row) -> resultSet.getString(1),
+                serviceKey,
+                operationKey);
+        if (rows.isEmpty()) {
+            return AuthDetails.empty();
+        }
+        return decryptDetails(readDetails(rows.getFirst()));
+    }
+
+    private AuthDetails decryptDetails(StoredAuthDetails stored) {
+        if (stored == null) {
+            return AuthDetails.empty();
+        }
+        return new AuthDetails(
+                stored.tokenUrl(),
+                stored.clientId(),
+                stored.scopes(),
+                decrypt(stored.certificateCipher()),
+                stored.bearerVariable(),
+                decrypt(stored.accessKeyCipher()),
+                stored.region(),
+                stored.awsService(),
+                stored.signatureHeader());
+    }
+
+    private StoredAuthDetails readDetails(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, StoredAuthDetails.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to read auth details", exception);
+        }
     }
 
     private String encrypt(String secret) {
@@ -464,6 +627,18 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Unable to store service catalog json", exception);
+        }
+    }
+
+    private StepConfig readStep(String json) {
+        if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+            return StepConfig.sync();
+        }
+        try {
+            StepConfig step = objectMapper.readValue(json, StepConfig.class);
+            return step == null ? StepConfig.sync() : step;
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Unable to read service catalog json", exception);
         }
     }
 
@@ -498,8 +673,33 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
     ) {
     }
 
-    /** Shared auth as stored: the secret is a cipher, never the plaintext. */
-    public record StoredAuth(String type, String apiKeyHeader, String secretCipher) {
+    /** Shared auth as stored: every secret field is a cipher, never the plaintext. */
+    public record StoredAuth(
+            String type,
+            String apiKeyHeader,
+            String secretCipher,
+            String apiKeyLocation,
+            String tokenUrl,
+            String clientId,
+            List<String> scopes,
+            String certificateCipher,
+            String bearerVariable,
+            String accessKeyCipher,
+            String region,
+            String awsService,
+            String signatureHeader) {
+    }
+
+    public record StoredAuthDetails(
+            String tokenUrl,
+            String clientId,
+            List<String> scopes,
+            String certificateCipher,
+            String bearerVariable,
+            String accessKeyCipher,
+            String region,
+            String awsService,
+            String signatureHeader) {
     }
 
     public record StoredPublication(
@@ -526,7 +726,14 @@ public final class JdbcServiceCatalog implements ServiceCatalog {
             String authMode,
             int connectTimeoutMillis,
             List<ErrorRule> errorRules,
-            List<String> successStatuses
+            List<String> successStatuses,
+            String contentType,
+            String rawMediaType,
+            List<StaticHeader> staticHeaders,
+            String bodyPresence,
+            String apiKeyLocation,
+            StoredAuthDetails authDetails,
+            StepConfig step
     ) {
     }
 }

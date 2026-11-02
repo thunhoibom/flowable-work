@@ -17,6 +17,12 @@ public final class ParameterContracts {
         checkOutputs(outputs == null ? List.of() : outputs);
     }
 
+    public static void check(PublishedOperation operation) {
+        check(operation.inputs(), operation.outputs());
+        StepConfig steps = operation.steps() == null ? StepConfig.sync() : operation.steps();
+        steps.check(operation.inputs(), operation.outputs());
+    }
+
     private static void checkInputs(List<InputParameter> inputs) {
         Set<String> names = new HashSet<>();
         for (InputParameter input : inputs) {
@@ -41,9 +47,18 @@ public final class ParameterContracts {
             if (!names.add(output.name())) {
                 throw new IllegalArgumentException("Duplicate output parameter");
             }
-            String field = output.jsonField();
-            if (field == null || field.isBlank() || field.length() > 256 || hasControl(field)) {
-                throw new IllegalArgumentException("Invalid JSON field");
+            OutputSource source = output.source() == null ? OutputSource.JSON_FIELD : output.source();
+            if (source == OutputSource.JSON_FIELD) {
+                String field = output.jsonField();
+                if (field == null || field.isBlank() || field.length() > 256 || hasControl(field)) {
+                    throw new IllegalArgumentException("Invalid JSON field");
+                }
+            }
+            if (source == OutputSource.RESPONSE_HEADER) {
+                String header = output.headerName();
+                if (header == null || header.isBlank() || header.length() > 256 || hasControl(header)) {
+                    throw new IllegalArgumentException("Invalid response header");
+                }
             }
         }
     }

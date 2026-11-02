@@ -42,6 +42,16 @@ const editForm = reactive({
   baseUrls: [{ environment: 'default', url: '' }],
   authType: 'NONE',
   apiKeyHeader: '',
+  apiKeyLocation: 'HEADER',
+  bearerVariable: '',
+  tokenUrl: '',
+  clientId: '',
+  scopes: '',
+  certificate: '',
+  signatureHeader: '',
+  accessKey: '',
+  region: '',
+  awsService: '',
   secret: '',
 })
 
@@ -191,6 +201,17 @@ function openEdit() {
   editForm.baseUrls.splice(0, editForm.baseUrls.length, ...baseUrls)
   editForm.authType = service.sharedAuth?.type || 'NONE'
   editForm.apiKeyHeader = service.sharedAuth?.apiKeyHeader || ''
+  // Header is the historical API key placement when an older service has no location.
+  editForm.apiKeyLocation = service.sharedAuth?.apiKeyLocation || 'HEADER'
+  editForm.bearerVariable = service.sharedAuth?.bearerVariable || ''
+  editForm.tokenUrl = service.sharedAuth?.tokenUrl || ''
+  editForm.clientId = service.sharedAuth?.clientId || ''
+  editForm.scopes = (service.sharedAuth?.scopes || []).join(',')
+  editForm.certificate = ''
+  editForm.signatureHeader = service.sharedAuth?.signatureHeader || ''
+  editForm.accessKey = ''
+  editForm.region = service.sharedAuth?.region || ''
+  editForm.awsService = service.sharedAuth?.awsService || ''
   // The API never returns the secret, so the field starts empty and a blank save keeps the stored one.
   editForm.secret = ''
   editVisible.value = true
@@ -218,6 +239,16 @@ async function saveService() {
         type: editForm.authType,
         apiKeyHeader: editForm.apiKeyHeader.trim(),
         secret: editForm.secret,
+        apiKeyLocation: editForm.apiKeyLocation,
+        bearerVariable: editForm.bearerVariable.trim(),
+        tokenUrl: editForm.tokenUrl.trim(),
+        clientId: editForm.clientId.trim(),
+        scopes: editForm.scopes.trim(),
+        certificate: editForm.certificate,
+        signatureHeader: editForm.signatureHeader.trim(),
+        accessKey: editForm.accessKey,
+        region: editForm.region.trim(),
+        awsService: editForm.awsService.trim(),
       },
     })
     editVisible.value = false
@@ -409,10 +440,50 @@ onMounted(() => {
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="editForm.authType === 'API_KEY'" label="Header API Key">
+        <el-form-item v-if="editForm.authType === 'API_KEY'" label="Vị trí API key">
+          <el-select v-model="editForm.apiKeyLocation" data-field="edit-api-key-location">
+            <el-option label="Header" value="HEADER" />
+            <el-option label="Query" value="QUERY" />
+          </el-select>
+        </el-form-item>
+        <el-form-item
+          v-if="editForm.authType === 'API_KEY'"
+          :label="editForm.apiKeyLocation === 'QUERY' ? 'Tên query' : 'Header API Key'"
+        >
           <el-input v-model="editForm.apiKeyHeader" data-field="edit-api-key-header" placeholder="X-Api-Key" />
         </el-form-item>
-        <el-form-item label="Khóa dùng chung">
+        <el-form-item v-if="editForm.authType === 'BEARER_VARIABLE'" label="Biến Bearer">
+          <el-input v-model="editForm.bearerVariable" data-field="edit-bearer-variable" />
+        </el-form-item>
+        <template v-if="editForm.authType === 'OAUTH2_CLIENT'">
+          <el-form-item label="URL token">
+            <el-input v-model="editForm.tokenUrl" data-field="edit-token-url" />
+          </el-form-item>
+          <el-form-item label="Client id">
+            <el-input v-model="editForm.clientId" data-field="edit-client-id" />
+          </el-form-item>
+          <el-form-item label="Scope">
+            <el-input v-model="editForm.scopes" data-field="edit-scopes" />
+          </el-form-item>
+        </template>
+        <el-form-item v-if="editForm.authType === 'MTLS'" label="Chứng chỉ PEM">
+          <el-input v-model="editForm.certificate" data-field="edit-certificate" type="textarea" :rows="4" />
+        </el-form-item>
+        <el-form-item v-if="editForm.authType === 'HMAC'" label="Header chữ ký">
+          <el-input v-model="editForm.signatureHeader" data-field="edit-signature-header" />
+        </el-form-item>
+        <template v-if="editForm.authType === 'AWS_SIG_V4'">
+          <el-form-item label="Access key">
+            <el-input v-model="editForm.accessKey" data-field="edit-access-key" />
+          </el-form-item>
+          <el-form-item label="Region">
+            <el-input v-model="editForm.region" data-field="edit-aws-region" />
+          </el-form-item>
+          <el-form-item label="Service">
+            <el-input v-model="editForm.awsService" data-field="edit-aws-service" />
+          </el-form-item>
+        </template>
+        <el-form-item v-if="editForm.authType !== 'BEARER_VARIABLE'" label="Khóa dùng chung">
           <el-input
             v-model="editForm.secret"
             data-field="edit-shared-secret"

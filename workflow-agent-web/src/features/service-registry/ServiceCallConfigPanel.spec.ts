@@ -54,6 +54,8 @@ describe('ServiceCallConfigPanel', () => {
     expect(wrapper.text()).toContain('POST')
     expect(wrapper.text()).toContain('https://crm.example/orders/${orderId}')
     expect(wrapper.text()).toContain('HTTP_ERROR')
+    expect(wrapper.text()).toContain('Kiểu nội dung: JSON')
+    expect(wrapper.text()).toContain('Nguồn: Trường JSON id')
     expect(wrapper.text()).not.toContain('DRAFT_ERROR')
     expect(wrapper.findAll('input').map((input) => input.element.value)).toEqual(['${orderId}', 'leadId'])
   })

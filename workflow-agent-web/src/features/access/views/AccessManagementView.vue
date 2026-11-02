@@ -199,7 +199,6 @@ function editRole(role: TenantRole) {
         <el-tab-pane v-if="canManageMembers" name="members">
           <template #label
             ><span class="tab-label"><UsersRound :size="16" />Thành viên</span></template>
-          >
           <div class="access-toolbar">
             <el-form
               class="filter-form filter-form--members"
@@ -243,7 +242,7 @@ function editRole(role: TenantRole) {
                 <StatusBadge :status="row.enabled" />
               </template>
             </el-table-column>
-            <el-table-column label="Thao tác" width="148" fixed="right">
+            <el-table-column label="Thao tác" width="200" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="editMember(row)">Cấu hình vai trò</el-button>
                 <el-button
@@ -308,7 +307,7 @@ function editRole(role: TenantRole) {
                 <StatusBadge :status="row.enabled" />
               </template>
             </el-table-column>
-            <el-table-column label="Thao tác" width="100" fixed="right">
+            <el-table-column label="Thao tác" width="140" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="!row.builtIn" link type="primary" @click="editRole(row)"
                   >Sửa</el-button

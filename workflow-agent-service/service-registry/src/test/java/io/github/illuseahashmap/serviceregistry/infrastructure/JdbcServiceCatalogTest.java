@@ -5,15 +5,28 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.illuseahashmap.serviceregistry.domain.ApiKeyLocation;
 import io.github.illuseahashmap.serviceregistry.domain.AuthConfig;
+import io.github.illuseahashmap.serviceregistry.domain.AuthDetails;
+import io.github.illuseahashmap.serviceregistry.domain.AuthMode;
 import io.github.illuseahashmap.serviceregistry.domain.AuthType;
+import io.github.illuseahashmap.serviceregistry.domain.BodyPresence;
+import io.github.illuseahashmap.serviceregistry.domain.CallStyle;
+import io.github.illuseahashmap.serviceregistry.domain.ContentType;
 import io.github.illuseahashmap.serviceregistry.domain.EnvironmentBaseUrl;
+import io.github.illuseahashmap.serviceregistry.domain.ErrorRule;
 import io.github.illuseahashmap.serviceregistry.domain.HttpMethod;
 import io.github.illuseahashmap.serviceregistry.domain.InputParameter;
+import io.github.illuseahashmap.serviceregistry.domain.OperationView;
 import io.github.illuseahashmap.serviceregistry.domain.OutputParameter;
+import io.github.illuseahashmap.serviceregistry.domain.OutputSource;
+import io.github.illuseahashmap.serviceregistry.domain.PaginationMode;
+import io.github.illuseahashmap.serviceregistry.domain.StepConfig;
 import io.github.illuseahashmap.serviceregistry.domain.ParameterLocation;
 import io.github.illuseahashmap.serviceregistry.domain.ParameterType;
+import io.github.illuseahashmap.serviceregistry.domain.PartKind;
 import io.github.illuseahashmap.serviceregistry.domain.PublishedOperation;
+import io.github.illuseahashmap.serviceregistry.domain.StaticHeader;
 import io.github.illuseahashmap.serviceregistry.domain.ServiceDraft;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
@@ -129,6 +142,133 @@ class JdbcServiceCatalogTest {
         assertEquals("https://legacy.example", catalog.published("crm", "createLead").orElseThrow().urlTemplate());
     }
 
+    @Test
+    void contentSettingsRoundTripThroughDraftAndPublication() throws Exception {
+        applyMigration();
+        var catalog = new JdbcServiceCatalog(dataSource(), new ServiceSecretCipher(KEY));
+        catalog.saveService("files", "Files");
+        catalog.saveServiceSettings("files", "Files", "",
+                List.of(new EnvironmentBaseUrl("default", "https://files.example")),
+                new AuthConfig(AuthType.API_KEY, "api_key", "shared-secret", ApiKeyLocation.QUERY));
+        catalog.saveOperation("files", new PublishedOperation(
+                "upload",
+                HttpMethod.POST,
+                "/files",
+                AuthMode.OVERRIDE,
+                AuthType.API_KEY,
+                "token",
+                "op-secret",
+                null,
+                1000,
+                2000,
+                List.of(new ErrorRule(List.of("409"), "HTTP_ERROR")),
+                List.of(),
+                List.of(new InputParameter("file", ParameterType.STRING, true, ParameterLocation.BODY, PartKind.FILE)),
+                List.of(),
+                ContentType.MULTIPART,
+                null,
+                List.of(new StaticHeader("Accept", "application/json")),
+                BodyPresence.CONTENT,
+                ApiKeyLocation.QUERY));
+        catalog.publish("files");
+
+        OperationView draft = catalog.find("files").orElseThrow().operations().getFirst();
+        assertEquals(ContentType.MULTIPART, draft.contentType());
+        assertEquals(List.of(new StaticHeader("Accept", "application/json")), draft.staticHeaders());
+        assertEquals(PartKind.FILE, draft.inputParameters().getFirst().partKind());
+        assertEquals(ApiKeyLocation.QUERY, draft.apiKeyLocation());
+        assertEquals(ApiKeyLocation.QUERY, catalog.find("files").orElseThrow().sharedAuth().apiKeyLocation());
+
+        PublishedOperation published = catalog.published("files", "upload").orElseThrow();
+        assertEquals(ContentType.MULTIPART, published.contentType());
+        assertEquals(List.of(new StaticHeader("Accept", "application/json")), published.staticHeaders());
+        assertEquals(PartKind.FILE, published.inputs().getFirst().partKind());
+        assertEquals(ApiKeyLocation.QUERY, published.apiKeyLocation());
+    }
+
+    @Test
+    void outputSourceRoundTripsInsideTheExistingParameterJson() throws Exception {
+        applyMigration();
+        var catalog = new JdbcServiceCatalog(dataSource(), new ServiceSecretCipher(KEY));
+        catalog.saveService("reports", "Reports");
+        catalog.saveOperation("reports", new PublishedOperation(
+                "download",
+                HttpMethod.GET,
+                "/reports",
+                AuthMode.INHERIT,
+                AuthType.NONE,
+                null,
+                null,
+                null,
+                1000,
+                2000,
+                List.of(new ErrorRule(List.of(), "HTTP_ERROR")),
+                List.of(),
+                List.of(),
+                List.of(
+                        new OutputParameter("body", ParameterType.STRING, null, OutputSource.RAW_BODY, null),
+                        new OutputParameter("code", ParameterType.INTEGER, null, OutputSource.STATUS, null),
+                        new OutputParameter("type", ParameterType.STRING, null, OutputSource.RESPONSE_HEADER, "Content-Type")),
+                ContentType.RAW,
+                "application/xml",
+                List.of(),
+                BodyPresence.NONE,
+                ApiKeyLocation.HEADER));
+        catalog.publish("reports");
+
+        PublishedOperation published = catalog.published("reports", "download").orElseThrow();
+        assertEquals(OutputSource.RAW_BODY, published.outputs().get(0).source());
+        assertEquals(OutputSource.STATUS, published.outputs().get(1).source());
+        assertEquals(OutputSource.RESPONSE_HEADER, published.outputs().get(2).source());
+        assertEquals("Content-Type", published.outputs().get(2).headerName());
+        assertEquals("RAW", catalog.find("reports").orElseThrow().operations().getFirst().publishedContentType());
+    }
+
+    @Test
+    void stepConfigAndCallbackWaitRoundTrip() throws Exception {
+        applyMigration();
+        var catalog = new JdbcServiceCatalog(dataSource(), new ServiceSecretCipher(KEY));
+        catalog.saveService("pages", "Pages");
+        catalog.saveOperation("pages", new PublishedOperation(
+                "list",
+                HttpMethod.GET,
+                "/items",
+                AuthMode.NONE,
+                AuthType.NONE,
+                null,
+                null,
+                null,
+                1000,
+                1000,
+                List.of(new ErrorRule(List.of(), "HTTP_ERROR")),
+                List.of(),
+                List.of(new InputParameter("page", ParameterType.STRING, false, ParameterLocation.QUERY)),
+                List.of(new OutputParameter("id", ParameterType.STRING, "id")),
+                ContentType.JSON,
+                null,
+                List.of(),
+                BodyPresence.NONE,
+                ApiKeyLocation.HEADER,
+                AuthDetails.empty(),
+                new StepConfig(PaginationMode.NEXT_TOKEN, "next", "page", 3, CallStyle.CALLBACK, "id", 5000)));
+        catalog.publish("pages");
+        PublishedOperation published = catalog.published("pages", "list").orElseThrow();
+        assertEquals(PaginationMode.NEXT_TOKEN, published.steps().pagination());
+        assertEquals(CallStyle.CALLBACK, published.steps().callStyle());
+        assertEquals(5000, published.steps().waitTimeoutMillis());
+        assertEquals("id", catalog.find("pages").orElseThrow().operations().getFirst().publishedSteps().correlationOutput());
+
+        var waits = new JdbcCallbackWaitStore(new org.springframework.jdbc.core.JdbcTemplate(dataSource()));
+        waits.insert(new io.github.illuseahashmap.serviceregistry.domain.CallbackWait(
+                "corr-1", "exec-1", "pages", "list", "{\"id\":\"leadId\"}", 50L));
+        assertEquals("exec-1", waits.take("corr-1").orElseThrow().executionId());
+        assertTrue(waits.take("corr-1").isEmpty());
+        waits.insert(new io.github.illuseahashmap.serviceregistry.domain.CallbackWait(
+                "corr-2", "exec-2", "pages", "list", "{}", 1L));
+        assertEquals("corr-2", waits.takeExpired(10L).getFirst().correlationId());
+        assertTrue(waits.takeExpired(10L).isEmpty());
+    }
+
     private static PublishedOperation operation(String url, String secret) {
         return operation(url, secret, List.of(), List.of());
     }
@@ -157,6 +297,9 @@ class JdbcServiceCatalogTest {
             executeScript(statement, "/db/migration/platform/V32__add_service_registry.sql");
             executeScript(statement, "/db/migration/platform/V33__add_service_operation_parameters.sql");
             executeScript(statement, "/db/migration/platform/V34__service_catalog_foundation.sql");
+            executeScript(statement, "/db/migration/platform/V35__service_http_content.sql");
+            executeScript(statement, "/db/migration/platform/V36__service_extended_auth.sql");
+            executeScript(statement, "/db/migration/platform/V37__service_multi_step.sql");
             migrated = true;
         }
     }

@@ -69,7 +69,7 @@ const emit = defineEmits<{
           ><el-input v-model="row.description" :disabled="readonly"
         /></template>
       </el-table-column>
-      <el-table-column label="Thao tác" width="70" align="center">
+      <el-table-column label="Thao tác" width="88" align="center">
         <template #default="{ $index }">
           <el-button link type="danger" :disabled="readonly" @click="emit('remove', $index)"
             >Xóa</el-button

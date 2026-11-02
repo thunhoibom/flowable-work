@@ -333,7 +333,7 @@ async function confirmDecision() {
               ><template #default="{ row }">{{
                 formatDuration(row.durationInMillis)
               }}</template></el-table-column
-            ><el-table-column v-if="canOperateInstances" label="Thao tác" width="250" fixed="right"
+            ><el-table-column v-if="canOperateInstances" label="Thao tác" width="340" fixed="right"
               ><template #default="{ row }">
                 <el-tooltip
                   :disabled="canActOnTask(row)"

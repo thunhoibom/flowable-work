@@ -2,6 +2,7 @@ package io.github.illuseahashmap.workflow.process.infrastructure.flowable;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.when;
 import io.github.illuseahashmap.workflow.process.application.ServiceParameterException;
 import io.github.illuseahashmap.workflow.process.application.ServiceParameterType;
 import io.github.illuseahashmap.workflow.process.application.port.PublishedCallContract;
+import io.github.illuseahashmap.workflow.process.application.port.ServiceCallbackRegistry;
 import io.github.illuseahashmap.workflow.process.application.port.ServiceInputContract;
 import io.github.illuseahashmap.workflow.process.application.port.ServiceOutputContract;
 import io.github.illuseahashmap.workflow.process.application.port.ServiceRegistryCallException;
@@ -37,6 +39,8 @@ class ServiceRegistryDelegateTest {
     @Mock
     private ServiceRegistryGateway gateway;
     @Mock
+    private ServiceCallbackRegistry callbacks;
+    @Mock
     private DelegateExecution execution;
     @Mock
     private ProcessEngineConfigurationImpl configuration;
@@ -46,7 +50,7 @@ class ServiceRegistryDelegateTest {
     @BeforeEach
     void createDelegate() {
         when(configuration.getExpressionManager()).thenReturn(new DefaultExpressionManager(Map.of()));
-        delegate = new ServiceRegistryDelegate(gateway, configuration);
+        delegate = new ServiceRegistryDelegate(gateway, configuration, callbacks);
     }
 
     @Test
@@ -190,6 +194,19 @@ class ServiceRegistryDelegateTest {
     }
 
     @Test
+    void passesTheBearerVariableFromTheProcess() {
+        when(execution.getCurrentFlowElement()).thenReturn(serviceTask("[]", "[]"));
+        when(gateway.findPublished("crm", "createLead")).thenReturn(Optional.of(
+                new PublishedCallContract(List.of(), List.of(), "accessToken")));
+        when(execution.getVariable("accessToken")).thenReturn("tok");
+        when(gateway.invoke("crm", "createLead", Map.of("accessToken", "tok"))).thenReturn(Map.of());
+
+        delegate.execute(execution);
+
+        verify(gateway).invoke("crm", "createLead", Map.of("accessToken", "tok"));
+    }
+
+    @Test
     void rejectsUnpublishedOperationBeforeTheCall() {
         when(execution.getCurrentFlowElement()).thenReturn(serviceTask("[]", "[]"));
         when(gateway.findPublished("crm", "createLead")).thenReturn(Optional.empty());
@@ -199,6 +216,45 @@ class ServiceRegistryDelegateTest {
                 .extracting(error -> ((BpmnError) error).getErrorCode())
                 .isEqualTo("SERVICE_NOT_PUBLISHED");
         verify(gateway, never()).invoke(any(), any(), any());
+    }
+
+    @Test
+    void waitsForTheCallbackAndDoesNotWriteTheInitialOutputs() {
+        ServiceTask task = serviceTask("[]", "[{\"name\":\"id\",\"variable\":\"leadId\"}]");
+        task.setTriggerable(true);
+        when(execution.getCurrentFlowElement()).thenReturn(task);
+        when(execution.getId()).thenReturn("exec-1");
+        when(gateway.findPublished("crm", "createLead")).thenReturn(Optional.of(new PublishedCallContract(
+                List.of(),
+                List.of(new ServiceOutputContract("id", ServiceParameterType.STRING)),
+                null,
+                "CALLBACK",
+                "id",
+                5000)));
+        when(gateway.invoke("crm", "createLead", Map.of())).thenReturn(Map.of("id", "abc"));
+
+        delegate.execute(execution);
+
+        verify(callbacks).register("abc", "exec-1", "crm", "createLead", Map.of("id", "leadId"), 5000L);
+        verify(execution, never()).setVariable(any(), any());
+    }
+
+    @Test
+    void rejectsACallbackWhenTheServiceTaskCannotWait() {
+        when(execution.getCurrentFlowElement()).thenReturn(serviceTask("[]", "[]"));
+        when(gateway.findPublished("crm", "createLead")).thenReturn(Optional.of(new PublishedCallContract(
+                List.of(),
+                List.of(new ServiceOutputContract("id", ServiceParameterType.STRING)),
+                null,
+                "CALLBACK",
+                "id",
+                5000)));
+        when(gateway.invoke("crm", "createLead", Map.of())).thenReturn(Map.of("id", "abc"));
+
+        assertThatThrownBy(() -> delegate.execute(execution))
+                .isInstanceOf(ServiceParameterException.class)
+                .hasMessageContaining("must stay open");
+        verify(callbacks, never()).register(any(), any(), any(), any(), any(), anyLong());
     }
 
     private static PublishedCallContract stringContract() {

@@ -24,17 +24,27 @@ const operations: CatalogOperation[] = [
 ]
 
 describe('OperationTable', () => {
-  it('shows the operation, its publish label, and emits select or add', async () => {
+  it('shows the operation number and opens edit from the action, not the row', async () => {
     const wrapper = mount(OperationTable, {
       props: { operations, selectedOperationKey: '' },
     })
 
+    expect(wrapper.text()).toContain('STT')
+    expect(wrapper.get('.operation-row__index').text()).toBe('1')
     expect(wrapper.text()).toContain('POST')
+    expect(wrapper.text()).toContain('JSON')
     expect(wrapper.text()).toContain('Đã phát hành')
     expect(wrapper.text()).toContain('Đã lưu khóa')
-    await wrapper.get('[data-operation="createLead"]').trigger('click')
+    expect(wrapper.find('button.operation-row').exists()).toBe(false)
+
+    await wrapper.get('.operation-row').trigger('click')
+    expect(wrapper.emitted('select')).toBeUndefined()
+
+    await wrapper.get('[data-action="edit-operation"]').trigger('click')
+    await wrapper.get('[data-action="delete-operation"]').trigger('click')
     await wrapper.get('[data-action="add-operation"]').trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual(['createLead'])
+    expect(wrapper.emitted('remove')?.[0]).toEqual(['createLead'])
     expect(wrapper.emitted('add')).toHaveLength(1)
   })
 

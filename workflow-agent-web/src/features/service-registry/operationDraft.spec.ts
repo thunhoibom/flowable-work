@@ -66,6 +66,24 @@ describe('operation draft', () => {
         ...draft,
         operationKey: 'createLead',
         url: 'https://crm.example',
+        authType: 'API_KEY',
+        authMode: 'OVERRIDE',
+        apiKeyLocation: 'QUERY',
+      }),
+    ).toBe('Thiếu tên query API key')
+    expect(
+      validateOperationDraft({
+        ...draft,
+        operationKey: 'createLead',
+        url: 'https://crm.example',
+        contentType: 'RAW',
+      }),
+    ).toBe('Thiếu media type')
+    expect(
+      validateOperationDraft({
+        ...draft,
+        operationKey: 'createLead',
+        url: 'https://crm.example',
         inputs: [{ name: ' ', type: 'STRING', required: false, location: 'QUERY' }],
       }),
     ).toBe('Thiếu tên tham số đầu vào')
@@ -102,6 +120,20 @@ describe('operation draft', () => {
     expect(toSaveCommand(draft)).toEqual({
       method: 'POST',
       url: 'https://crm.example/orders/${orderId}',
+      contentType: 'JSON',
+      rawMediaType: undefined,
+      staticHeaders: [],
+      bodyPresence: 'CONTENT',
+      apiKeyLocation: 'HEADER',
+      bearerVariable: '',
+      tokenUrl: '',
+      clientId: '',
+      scopes: '',
+      certificate: '',
+      signatureHeader: '',
+      accessKey: '',
+      region: '',
+      awsService: '',
       authType: 'API_KEY',
       authMode: 'OVERRIDE',
       apiKeyHeader: 'X-Api-Key',
@@ -113,8 +145,17 @@ describe('operation draft', () => {
       successStatuses: '',
       errorStatusCodes: ['409', '5XX'],
       bpmnErrorCode: 'HTTP_ERROR',
-      inputParameters: [{ name: 'orderId', type: 'STRING', required: true, location: 'PATH' }],
-      outputParameters: [{ name: 'id', type: 'LONG', jsonField: 'id' }],
+      inputParameters: [{ name: 'orderId', type: 'STRING', required: true, location: 'PATH', partKind: 'TEXT' }],
+      outputParameters: [{ name: 'id', type: 'LONG', jsonField: 'id', source: 'JSON_FIELD', headerName: '' }],
+      steps: {
+        pagination: 'NONE',
+        nextField: '',
+        nextTokenParameter: '',
+        maxPages: 10,
+        callStyle: 'SYNC',
+        correlationOutput: '',
+        waitTimeoutMillis: 0,
+      },
     })
   })
 })

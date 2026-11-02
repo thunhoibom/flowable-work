@@ -44,7 +44,8 @@ public class SecurityConfig {
                         .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy())
                         .ignoringRequestMatchers(request -> "POST".equalsIgnoreCase(request.getMethod())
                                 && ("/auth/login".equals(request.getRequestURI())
-                                || "/auth/register".equals(request.getRequestURI())))
+                                || "/auth/register".equals(request.getRequestURI())
+                                || request.getRequestURI().startsWith("/service-callbacks/")))
                         .ignoringRequestMatchers(request -> StringUtils.hasText(
                                 request.getHeader(ServiceTokenAuthenticationFilter.TOKEN_HEADER))))
                 .sessionManagement(configurer -> configurer
@@ -52,6 +53,8 @@ public class SecurityConfig {
                         .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
                 .authorizeHttpRequests(registry -> registry
                         .requestMatchers("/actuator/health", "/actuator/info", "/auth/csrf", "/auth/register", "/auth/login", "/auth/logout").permitAll()
+                        // The caller is an external system. The correlation id is the capability.
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/service-callbacks/**").permitAll()
                         .requestMatchers("/actuator/prometheus").hasRole("PLATFORM_ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(serviceTokenAuthenticationFilter, CsrfFilter.class)

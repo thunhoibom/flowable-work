@@ -409,6 +409,8 @@ function applyServiceCall() {
   }
   modeling.updateModdleProperties(element, object, {
     delegateExpression: '${serviceRegistryDelegate}',
+    // Callback operations stay on this task until the webhook arrives. Sync calls leave immediately.
+    triggerable: true,
   })
   dirty.value = true
 }

@@ -463,7 +463,7 @@ function assignmentTargetsText(rule: AssignmentRule) {
           ><template #default="{ row }">{{
             formatDateTime(row.updatedAt)
           }}</template></el-table-column
-        ><el-table-column label="Thao tác" width="130" fixed="right"
+        ><el-table-column label="Thao tác" width="152" fixed="right"
           ><template #default="{ row }"
             ><el-button link type="primary" @click="openEdit(row)">Sửa</el-button
             ><el-button link type="danger" @click="remove(row)"

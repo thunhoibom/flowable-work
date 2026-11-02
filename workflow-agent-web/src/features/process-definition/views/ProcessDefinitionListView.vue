@@ -245,7 +245,7 @@ function handleStarted(result: StartProcessResult) {
         <el-table-column label="Cập nhật lúc" width="180">
           <template #default="{ row }">{{ formatDateTime(row.latestDeployTime) }}</template>
         </el-table-column>
-        <el-table-column v-if="canWriteDefinitions || canOperateInstances" label="Thao tác" width="240">
+        <el-table-column v-if="canWriteDefinitions || canOperateInstances" label="Thao tác" width="300">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button

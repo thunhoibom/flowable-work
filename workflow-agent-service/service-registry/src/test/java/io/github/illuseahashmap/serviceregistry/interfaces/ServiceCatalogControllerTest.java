@@ -213,4 +213,61 @@ class ServiceCatalogControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.sharedAuth.secretPresent").value(true));
     }
+
+    @Test
+    void savesPaginationAndRejectsACallbackWithoutATimeout() throws Exception {
+        mvc.perform(post("/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceKey\":\"pages\",\"name\":\"Pages\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(put("/services/pages/operations/list")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method": "GET",
+                                  "url": "/items",
+                                  "authType": "NONE",
+                                  "authMode": "NONE",
+                                  "timeoutMillis": 1000,
+                                  "inputParameters": [
+                                    {"name": "page", "type": "STRING", "required": false, "location": "QUERY"}
+                                  ],
+                                  "outputParameters": [
+                                    {"name": "id", "type": "STRING", "jsonField": "id"}
+                                  ],
+                                  "steps": {
+                                    "pagination": "NEXT_TOKEN",
+                                    "nextField": "next",
+                                    "nextTokenParameter": "page",
+                                    "maxPages": 3,
+                                    "callStyle": "SYNC"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk());
+        mvc.perform(get("/services/pages"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.operations[0].steps.pagination").value("NEXT_TOKEN"))
+                .andExpect(jsonPath("$.data.operations[0].steps.maxPages").value(3));
+        mvc.perform(put("/services/pages/operations/list")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "method": "GET",
+                                  "url": "/items",
+                                  "authType": "NONE",
+                                  "authMode": "NONE",
+                                  "timeoutMillis": 1000,
+                                  "outputParameters": [
+                                    {"name": "id", "type": "STRING", "jsonField": "id"}
+                                  ],
+                                  "steps": {
+                                    "pagination": "NONE",
+                                    "callStyle": "CALLBACK",
+                                    "correlationOutput": "id"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+    }
 }

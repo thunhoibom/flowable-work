@@ -1,4 +1,4 @@
-import type { CatalogInputParameter, CatalogOperation, CatalogOutputParameter } from './api'
+import type { CatalogInputParameter, CatalogOperation, CatalogOutputParameter, CatalogStep } from './api'
 
 export type OperationPublishStatus = 'unpublished' | 'changed' | 'published'
 
@@ -15,7 +15,8 @@ export function operationPublishStatus(operation: CatalogOperation): OperationPu
     operation.urlTemplate !== operation.publishedUrl ||
     !sameText(operation.bpmnErrorCode, operation.publishedBpmnErrorCode) ||
     !sameInputs(operation.inputParameters, operation.publishedInputParameters) ||
-    !sameOutputs(operation.outputParameters, operation.publishedOutputParameters)
+    !sameOutputs(operation.outputParameters, operation.publishedOutputParameters) ||
+    !sameSteps(operation.steps, operation.publishedSteps)
   ) {
     return 'changed'
   }
@@ -47,7 +48,25 @@ function sameOutputs(
 ) {
   const left = draft ?? []
   if (published == null) return left.length === 0
-  return sameMembers(left, published, (row) => [row.name, row.type, row.jsonField].join('\u0000'))
+  return sameMembers(left, published, (row) =>
+    [row.name, row.type, row.source || 'JSON_FIELD', row.jsonField || '', row.headerName || ''].join('\u0000'),
+  )
+}
+
+function sameSteps(draft: CatalogStep | undefined, published: CatalogStep | undefined) {
+  return stepSignature(draft) === stepSignature(published)
+}
+
+function stepSignature(step: CatalogStep | undefined) {
+  return [
+    step?.pagination || 'NONE',
+    step?.nextField || '',
+    step?.nextTokenParameter || '',
+    String(step?.maxPages || 10),
+    step?.callStyle || 'SYNC',
+    step?.correlationOutput || '',
+    String(step?.waitTimeoutMillis || 0),
+  ].join('\u0000')
 }
 
 function sameMembers<T>(left: T[], right: T[], signature: (value: T) => string) {

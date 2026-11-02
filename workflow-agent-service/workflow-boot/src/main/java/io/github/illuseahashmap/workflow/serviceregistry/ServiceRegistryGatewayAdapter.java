@@ -2,6 +2,7 @@ package io.github.illuseahashmap.workflow.serviceregistry;
 
 import io.github.illuseahashmap.serviceregistry.application.PublishedServiceInvoker;
 import io.github.illuseahashmap.serviceregistry.application.ServiceCallException;
+import io.github.illuseahashmap.serviceregistry.domain.AuthType;
 import io.github.illuseahashmap.serviceregistry.domain.InvalidServiceRequestException;
 import io.github.illuseahashmap.serviceregistry.domain.PublishedOperation;
 import io.github.illuseahashmap.workflow.process.application.ServiceParameterException;
@@ -53,6 +54,12 @@ public class ServiceRegistryGatewayAdapter implements ServiceRegistryGateway {
                         .map(output -> new ServiceOutputContract(
                                 output.name(),
                                 ServiceParameterType.valueOf(output.type().name())))
-                        .toList());
+                        .toList(),
+                operation.authType() == AuthType.BEARER_VARIABLE
+                        ? operation.authDetails().bearerVariable()
+                        : null,
+                operation.steps().callStyle().name(),
+                operation.steps().correlationOutput(),
+                operation.steps().waitTimeoutMillis());
     }
 }
