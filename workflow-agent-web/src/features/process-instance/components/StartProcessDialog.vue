@@ -473,7 +473,7 @@ function variablePlaceholder(type: ProcessVariableType) {
 .variable-empty {
   padding: 18px 0;
   border: 1px dashed var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--color-text-subtle);
   font-size: 12px;
   text-align: center;
@@ -486,7 +486,7 @@ function variablePlaceholder(type: ProcessVariableType) {
 .participant-status--loading {
   padding: 13px 15px;
   border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--color-primary-soft);
   color: var(--color-text-muted);
   font-size: 13px;

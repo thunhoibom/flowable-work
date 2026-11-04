@@ -49,7 +49,7 @@ defineProps<{
   place-items: center;
   margin-bottom: 2px;
   border: 1px solid var(--color-border-soft);
-  border-radius: 18px;
+  border-radius: var(--panel-radius);
   color: var(--color-primary);
   background: var(--color-primary-soft);
   box-shadow: var(--shadow-panel);

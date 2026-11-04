@@ -1372,7 +1372,7 @@ function failureCategoryLabel(category: string) {
   gap: 12px;
   padding: 16px 18px;
   border: 1px solid var(--color-border-soft);
-  border-radius: 14px;
+  border-radius: var(--panel-radius);
   background: var(--color-surface);
 }
 .agent-overview p,
@@ -1399,7 +1399,7 @@ function failureCategoryLabel(category: string) {
   flex: 0 0 36px;
   display: grid;
   place-items: center;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   color: var(--color-primary);
   background: var(--color-primary-soft);
 }
@@ -1420,7 +1420,7 @@ function failureCategoryLabel(category: string) {
   min-height: 560px;
   overflow: hidden;
   border: 1px solid var(--color-border-soft);
-  border-radius: 16px;
+  border-radius: var(--panel-radius);
   background: var(--color-surface);
 }
 .agent-tabs {
@@ -1457,7 +1457,7 @@ function failureCategoryLabel(category: string) {
 }
 .agent-tab-content .page-actions {
   border: 1px solid var(--color-border-soft);
-  border-radius: 13px;
+  border-radius: var(--panel-radius);
   background: var(--color-surface-muted);
 }
 .filter-form--agent {
@@ -1471,7 +1471,7 @@ function failureCategoryLabel(category: string) {
 .agent-table-panel {
   min-height: 0;
   border: 1px solid var(--color-border-soft);
-  border-radius: 13px;
+  border-radius: var(--panel-radius);
   box-shadow: none;
 }
 .agent-table-panel .table-pagination {
@@ -1489,7 +1489,7 @@ function failureCategoryLabel(category: string) {
   height: 34px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--color-primary);
   background: var(--color-primary-soft);
   font-weight: 750;
@@ -1532,7 +1532,7 @@ function failureCategoryLabel(category: string) {
   margin-bottom: 18px;
   padding: 13px 14px;
   border: 1px solid var(--color-border-soft);
-  border-radius: 12px;
+  border-radius: var(--panel-radius);
   color: var(--color-primary);
   background: var(--color-primary-soft);
 }
@@ -1553,7 +1553,7 @@ function failureCategoryLabel(category: string) {
   margin-top: 12px;
   padding: 16px 12px 8px;
   border: 1px solid var(--color-border-soft);
-  border-radius: 12px;
+  border-radius: var(--panel-radius);
   background: var(--color-surface-muted);
 }
 .state-history-guide {
@@ -1600,7 +1600,7 @@ function failureCategoryLabel(category: string) {
   gap: 22px;
   padding: 18px 20px;
   border: 1px solid var(--color-border);
-  border-radius: 13px;
+  border-radius: var(--panel-radius);
   background: var(--color-surface-muted);
 }
 .run-summary-card > div {
@@ -1629,7 +1629,7 @@ function failureCategoryLabel(category: string) {
   margin-top: 14px;
   padding: 15px;
   border: 1px solid var(--color-border-soft);
-  border-radius: 13px;
+  border-radius: var(--panel-radius);
   background: var(--color-surface-muted);
 }
 .run-diagnostics-card {
@@ -1639,7 +1639,7 @@ function failureCategoryLabel(category: string) {
   margin-top: 12px;
   padding: 12px 15px;
   border: 1px solid var(--color-border-soft);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--color-surface-muted);
 }
 .run-diagnostics-card > div {
@@ -1711,7 +1711,7 @@ function failureCategoryLabel(category: string) {
 .checkpoint-list article {
   overflow: hidden;
   border: 1px solid var(--color-border-soft);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
 }
 .checkpoint-list header {
   display: flex;
@@ -1745,7 +1745,7 @@ function failureCategoryLabel(category: string) {
   gap: 20px;
   margin-bottom: 14px;
   padding: 12px 14px;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--color-surface-muted);
 }
 .version-toolbar p {

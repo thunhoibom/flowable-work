@@ -33,39 +33,40 @@ const presentation = computed(() => getStatusPresentation(props.status))
   height: 25px;
   justify-content: center;
   padding-inline: 8px;
-  border-radius: 999px;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
   line-height: 1;
 }
 
 .status-badge[data-tone='primary'] {
-  --el-tag-bg-color: var(--color-primary-soft);
-  --el-tag-border-color: #bfd5ff;
-  --el-tag-text-color: var(--color-primary-strong);
+  --el-tag-bg-color: var(--color-info-soft);
+  --el-tag-border-color: transparent;
+  --el-tag-text-color: var(--color-info);
 }
 
 .status-badge[data-tone='success'] {
   --el-tag-bg-color: var(--color-success-soft);
-  --el-tag-border-color: var(--color-success-border);
+  --el-tag-border-color: transparent;
   --el-tag-text-color: var(--color-success);
 }
 
 .status-badge[data-tone='warning'] {
   --el-tag-bg-color: var(--color-warning-soft);
-  --el-tag-border-color: var(--color-warning-border);
+  --el-tag-border-color: transparent;
   --el-tag-text-color: var(--color-warning);
 }
 
 .status-badge[data-tone='danger'] {
   --el-tag-bg-color: var(--color-danger-soft);
-  --el-tag-border-color: var(--color-danger-border);
+  --el-tag-border-color: transparent;
   --el-tag-text-color: var(--color-danger);
 }
 
 .status-badge[data-tone='info'] {
   --el-tag-bg-color: var(--color-surface-muted);
-  --el-tag-border-color: var(--color-border);
+  --el-tag-border-color: transparent;
   --el-tag-text-color: var(--color-text-muted);
 }
 

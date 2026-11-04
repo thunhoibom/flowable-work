@@ -152,7 +152,7 @@ function confirm() {
   min-height: 290px;
   overflow: hidden;
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: var(--panel-radius);
 }
 
 .user-picker-option {
@@ -163,7 +163,7 @@ function confirm() {
   min-height: 56px;
   padding: 8px 14px;
   border: 0;
-  border-bottom: 1px solid #edf2f7;
+  border-bottom: 1px solid var(--color-border-soft);
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;

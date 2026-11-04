@@ -84,7 +84,7 @@ function placeholder(field: InteractionDataField) {
   margin: 14px 0;
   padding: 16px;
   border: 1px solid var(--color-border);
-  border-radius: 12px;
+  border-radius: var(--panel-radius);
   background: var(--color-primary-soft);
 }
 

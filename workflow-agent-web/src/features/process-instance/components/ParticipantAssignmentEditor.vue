@@ -146,7 +146,7 @@ function assignmentLabel(requirement: ParticipantRequirement) {
 .participant-card {
   padding: 12px;
   border: 1px solid var(--color-border-soft);
-  border-radius: 12px;
+  border-radius: var(--panel-radius);
   background: var(--color-primary-soft);
 }
 
