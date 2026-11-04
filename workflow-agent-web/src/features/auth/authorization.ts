@@ -1,62 +1,48 @@
 import type { AuthUser } from './types'
 
+/**
+ * EIM roles (from the token's `eim_roles` claim). Each screen and action lists the roles it
+ * accepts, mirroring the backend's `@PreAuthorize("hasAnyRole(...)")`.
+ */
 export const APP_ROLE = {
-  platformAdministrator: 'PLATFORM_ADMIN',
-  tenantAdministrator: 'TENANT_ADMIN',
-} as const
-
-export const APP_PERMISSION = {
-  definitionRead: 'workflow:definition:read',
-  definitionWrite: 'workflow:definition:write',
-  instanceRead: 'workflow:instance:read',
-  instanceOperate: 'workflow:instance:operate',
-  assignmentManage: 'assignment:manage',
-  memberManage: 'member:manage',
-  roleManage: 'role:manage',
-  tenantManage: 'tenant:manage',
-  agentManage: 'agent:manage',
-  agentRunRead: 'agent:run:read',
-  agentRunExecute: 'agent:run:execute',
+  platformAdministrator: 'WF_PLATFORM_ADMIN',
+  administrator: 'WF_ADMIN',
+  operator: 'WF_OPERATOR',
+  viewer: 'WF_VIEWER',
 } as const
 
 export type AppRole = (typeof APP_ROLE)[keyof typeof APP_ROLE]
-export type AppPermission = (typeof APP_PERMISSION)[keyof typeof APP_PERMISSION]
+
+const { platformAdministrator, administrator, operator, viewer } = APP_ROLE
+
+/** Role lists per capability; keep in sync with the backend controllers. */
+export const ROLES = {
+  anyUser: [platformAdministrator, administrator, operator, viewer],
+  designers: [platformAdministrator, administrator],
+  operators: [platformAdministrator, administrator, operator],
+  platformAdministrators: [platformAdministrator],
+} as const satisfies Record<string, readonly AppRole[]>
 
 export interface AccessRequirement {
   requiredAnyRoles?: readonly AppRole[]
-  requiredAnyPermissions?: readonly AppPermission[]
 }
 
-type AuthorizationSubject = Pick<AuthUser, 'roles' | 'permissions'> | null | undefined
+type AuthorizationSubject = Pick<AuthUser, 'roles'> | null | undefined
 
 export function hasRole(subject: AuthorizationSubject, role: AppRole) {
   return subject?.roles.includes(role) ?? false
 }
 
-export function hasPermission(subject: AuthorizationSubject, permission: AppPermission) {
-  return subject?.permissions.includes(permission) ?? false
-}
-
 export function hasAccess(subject: AuthorizationSubject, requirement: AccessRequirement) {
   const roles = requirement.requiredAnyRoles ?? []
-  const permissions = requirement.requiredAnyPermissions ?? []
-  if (roles.length === 0 && permissions.length === 0) return true
-  return (
-    roles.some((role) => hasRole(subject, role)) ||
-    permissions.some((permission) => hasPermission(subject, permission))
-  )
+  if (roles.length === 0) return true
+  return roles.some((role) => hasRole(subject, role))
 }
 
 export function canWriteDefinitions(subject: AuthorizationSubject) {
-  return hasAccess(subject, {
-    requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-    requiredAnyPermissions: [APP_PERMISSION.definitionWrite],
-  })
+  return hasAccess(subject, { requiredAnyRoles: ROLES.designers })
 }
 
 export function canOperateInstances(subject: AuthorizationSubject) {
-  return hasAccess(subject, {
-    requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-    requiredAnyPermissions: [APP_PERMISSION.instanceOperate],
-  })
+  return hasAccess(subject, { requiredAnyRoles: ROLES.operators })
 }

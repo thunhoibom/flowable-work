@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from 'vue'
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -12,11 +12,11 @@ import {
   GitBranch,
   LogOut,
   Menu,
+  RefreshCw,
   Route,
   Cable,
   ScrollText,
   UsersRound,
-  KeyRound,
   UserRound,
   Workflow,
   X,
@@ -24,7 +24,8 @@ import {
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { queryKeys } from '@/api/queryKeys'
-import { hasAccess } from '@/features/auth/authorization'
+import { getSitemap } from '@/features/auth/api'
+import { buildNavigation } from '@/features/auth/menu'
 import type { NavigationIcon } from '@/router/meta'
 
 const route = useRoute()
@@ -41,11 +42,8 @@ const userInitial = computed(() => displayName.value.slice(0, 1).toUpperCase())
 const selectedTenant = ref(authStore.user?.tenantCode || '')
 const switchingTenant = ref(false)
 const profileVisible = ref(false)
-const passwordVisible = ref(false)
 const savingProfile = ref(false)
-const savingPassword = ref(false)
 const profileForm = reactive({ displayName: '' })
-const passwordForm = reactive({ currentPassword: '', newPassword: '', confirmPassword: '' })
 const sidebarCollapsed = ref(false)
 const sidebarToggleButton = ref<HTMLButtonElement>()
 const SIDEBAR_COLLAPSED_KEY = 'workflow-agent.sidebar-collapsed'
@@ -138,13 +136,6 @@ async function handleUserCommand(command: string) {
     profileVisible.value = true
     return
   }
-  if (command === 'password') {
-    passwordForm.currentPassword = ''
-    passwordForm.newPassword = ''
-    passwordForm.confirmPassword = ''
-    passwordVisible.value = true
-    return
-  }
   if (command === 'logout') {
     await authStore.logout()
     await router.replace({ name: 'auth' })
@@ -169,42 +160,28 @@ async function submitProfile() {
   }
 }
 
-async function submitPassword() {
-  if (passwordForm.newPassword.length < 8) {
-    ElMessage.warning('Mật khẩu mới cần ít nhất 8 ký tự')
-    return
-  }
-  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    ElMessage.warning('Hai lần nhập mật khẩu mới không khớp')
-    return
-  }
-  savingPassword.value = true
-  try {
-    await authStore.changePassword(passwordForm.currentPassword, passwordForm.newPassword)
-    passwordVisible.value = false
-    ElMessage.success('Đã đổi mật khẩu')
-  } catch {
-    ElMessage.error('Đổi mật khẩu thất bại. Hãy kiểm tra mật khẩu hiện tại')
-  } finally {
-    savingPassword.value = false
-  }
-}
-
 async function handleMobileLogout() {
   appStore.closeMobileNavigation()
   await handleUserCommand('logout')
 }
 
+// Menu entries come from EIM (GET /auth/sitemaps), like the rsa-core-service portal.
+const sitemapQuery = useQuery({
+  queryKey: computed(() => queryKeys.sitemap(authStore.user?.userId || '')),
+  queryFn: getSitemap,
+  enabled: computed(() => Boolean(authStore.user?.userId)),
+  staleTime: 5 * 60_000,
+  retry: false,
+})
+
 const navigation = computed(() =>
-  router
-    .getRoutes()
-    .filter((item) => item.name && item.meta.navigation && hasAccess(authStore.user, item.meta))
-    .sort((left, right) => left.meta.navigation!.order - right.meta.navigation!.order)
-    .map((item) => ({
-      label: item.meta.navigation!.label,
-      to: { name: item.name! },
-      icon: navigationIcons[item.meta.navigation!.icon],
-    })),
+  buildNavigation(router.getRoutes(), sitemapQuery.data.value ?? [], authStore.user).map(
+    (item) => ({
+      label: item.label,
+      to: { name: item.routeName },
+      icon: navigationIcons[item.icon],
+    }),
+  ),
 )
 </script>
 
@@ -232,6 +209,17 @@ const navigation = computed(() =>
       </button>
 
       <nav class="navigation">
+        <div v-if="sitemapQuery.isError.value" class="navigation-error" role="alert">
+          <span>Không tải được menu từ EIM</span>
+          <el-button
+            text
+            size="small"
+            :loading="sitemapQuery.isFetching.value"
+            @click="sitemapQuery.refetch()"
+          >
+            <RefreshCw :size="14" />Thử lại
+          </el-button>
+        </div>
         <RouterLink
           v-for="item in navigation"
           :key="String(item.to.name)"
@@ -275,6 +263,17 @@ const navigation = computed(() =>
         </div>
       </template>
       <nav class="navigation navigation-mobile">
+        <div v-if="sitemapQuery.isError.value" class="navigation-error" role="alert">
+          <span>Không tải được menu từ EIM</span>
+          <el-button
+            text
+            size="small"
+            :loading="sitemapQuery.isFetching.value"
+            @click="sitemapQuery.refetch()"
+          >
+            <RefreshCw :size="14" />Thử lại
+          </el-button>
+        </div>
         <RouterLink
           v-for="item in navigation"
           :key="String(item.to.name)"
@@ -376,12 +375,7 @@ const navigation = computed(() =>
                     <small>{{ authStore.user?.username }}</small>
                   </span>
                 </el-dropdown-item>
-                <el-dropdown-item command="profile"
-                  ><UserRound :size="15" />Hồ sơ</el-dropdown-item
-                >
-                <el-dropdown-item command="password"
-                  ><KeyRound :size="15" />Đổi mật khẩu</el-dropdown-item
-                >
+                <el-dropdown-item command="profile"><UserRound :size="15" />Hồ sơ</el-dropdown-item>
                 <el-dropdown-item divided command="logout"
                   ><LogOut :size="15" />Đăng xuất</el-dropdown-item
                 >
@@ -413,39 +407,6 @@ const navigation = computed(() =>
       <template #footer>
         <el-button @click="profileVisible = false">Hủy</el-button>
         <el-button type="primary" :loading="savingProfile" @click="submitProfile">Lưu</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="passwordVisible" title="Đổi mật khẩu" width="min(480px, calc(100vw - 32px))">
-      <el-form label-position="top" @submit.prevent="submitPassword">
-        <el-form-item label="Mật khẩu hiện tại" required>
-          <el-input v-model="passwordForm.currentPassword" type="password" show-password />
-        </el-form-item>
-        <el-form-item label="Mật khẩu mới" required>
-          <el-input
-            v-model="passwordForm.newPassword"
-            type="password"
-            show-password
-            minlength="8"
-            maxlength="128"
-            placeholder="Ít nhất 8 ký tự"
-          />
-        </el-form-item>
-        <el-form-item label="Xác nhận mật khẩu mới" required>
-          <el-input
-            v-model="passwordForm.confirmPassword"
-            type="password"
-            show-password
-            maxlength="128"
-            @keyup.enter="submitPassword"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="passwordVisible = false">Hủy</el-button>
-        <el-button type="primary" :loading="savingPassword" @click="submitPassword"
-          >Xác nhận đổi</el-button
-        >
       </template>
     </el-dialog>
   </div>

@@ -80,7 +80,7 @@ class TenantManagementServiceImplTest {
     private void preparePlatformAdministrator(String tenantCode) {
         when(principalProvider.current()).thenReturn(new CurrentPrincipal(
                 "USER", "admin-id", "admin", "Admin", tenantCode,
-                Set.of("PLATFORM_ADMIN"), Set.of("tenant:manage")));
+                Set.of("WF_PLATFORM_ADMIN"), Set.of()));
     }
 
     private WorkflowTenant tenant(long id, String tenantCode, boolean enabled) {

@@ -1,5 +1,6 @@
 package io.github.illuseahashmap.workflow.tenant.application.impl;
 
+import io.github.illuseahashmap.workflow.shared.context.WorkflowRoles;
 import io.github.illuseahashmap.workflow.auth.application.AuthTenantProvisioningService;
 import io.github.illuseahashmap.workflow.auth.domain.SecurityAuditRepository;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipal;
@@ -116,7 +117,7 @@ public class TenantManagementServiceImpl implements TenantManagementService {
     }
 
     private void requirePlatformAdministrator() {
-        if (!principalProvider.current().roles().contains("PLATFORM_ADMIN")) {
+        if (!principalProvider.current().roles().contains(WorkflowRoles.PLATFORM_ADMIN)) {
             throw new BusinessException(ErrorCode.FORBIDDEN,
                     "Only a platform administrator can change tenant lifecycle state");
         }

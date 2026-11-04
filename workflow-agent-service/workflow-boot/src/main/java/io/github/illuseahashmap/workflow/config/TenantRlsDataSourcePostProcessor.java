@@ -1,5 +1,6 @@
 package io.github.illuseahashmap.workflow.config;
 
+import io.github.illuseahashmap.workflow.shared.context.WorkflowRoles;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipalContext;
 import io.github.illuseahashmap.workflow.shared.context.TenantContext;
 import io.github.illuseahashmap.workflow.shared.context.TrustedDataAccessContext;
@@ -62,7 +63,7 @@ public final class TenantRlsDataSourcePostProcessor implements BeanPostProcessor
             boolean platformAdmin = !TrustedDataAccessContext.isSystemWorker()
                     && !TrustedDataAccessContext.isAuthentication()
                     && CurrentPrincipalContext.currentOrNull() != null
-                    && CurrentPrincipalContext.currentOrNull().roles().contains("PLATFORM_ADMIN");
+                    && CurrentPrincipalContext.currentOrNull().roles().contains(WorkflowRoles.PLATFORM_ADMIN);
             boolean systemWorker = TrustedDataAccessContext.isSystemWorker();
             boolean authentication = TrustedDataAccessContext.isAuthentication();
             try (PreparedStatement statement = connection.prepareStatement(

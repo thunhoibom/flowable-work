@@ -7,8 +7,6 @@ import java.sql.SQLException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.Set;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -55,28 +53,6 @@ public class JdbcAuthMembershipRepository implements AuthMembershipRepository {
         return jdbcClient.sql("""
                         SELECT users.user_id, users.username, users.display_name,
                                users.enabled AS user_enabled, membership.enabled AS membership_enabled,
-                               ARRAY(
-                                   SELECT assignment.role_code
-                                   FROM auth_user_role assignment
-                                   JOIN auth_role role
-                                     ON role.tenant_code = assignment.tenant_code
-                                    AND role.role_code = assignment.role_code
-                                    AND role.enabled = 1
-                                   WHERE assignment.user_id = users.user_id
-                                     AND assignment.tenant_code = :tenantCode
-                                   ORDER BY assignment.role_code
-                               ) AS tenant_role_codes,
-                               ARRAY(
-                                   SELECT assignment.role_code
-                                   FROM auth_user_role assignment
-                                   JOIN auth_role role
-                                     ON role.tenant_code = assignment.tenant_code
-                                    AND role.role_code = assignment.role_code
-                                    AND role.enabled = 1
-                                   WHERE assignment.user_id = users.user_id
-                                     AND assignment.tenant_code = '*'
-                                   ORDER BY assignment.role_code
-                               ) AS global_role_codes,
                                membership.joined_at
                         FROM auth_user_tenant membership
                         JOIN auth_user users ON users.user_id = membership.user_id
@@ -93,8 +69,6 @@ public class JdbcAuthMembershipRepository implements AuthMembershipRepository {
                         resultSet.getString("display_name"),
                         resultSet.getInt("user_enabled") == 1,
                         resultSet.getInt("membership_enabled") == 1,
-                        readStringSet(resultSet, "tenant_role_codes"),
-                        readStringSet(resultSet, "global_role_codes"),
                         resultSet.getObject("joined_at", java.time.OffsetDateTime.class)))
                 .list();
     }
@@ -120,8 +94,6 @@ public class JdbcAuthMembershipRepository implements AuthMembershipRepository {
         List<TenantMember> records = jdbcClient.sql("""
                         SELECT users.user_id, users.username, users.display_name,
                                users.enabled AS user_enabled, membership.enabled AS membership_enabled,
-                               ARRAY[]::VARCHAR[] AS tenant_role_codes,
-                               ARRAY[]::VARCHAR[] AS global_role_codes,
                                membership.joined_at
                         """ + filter + """
                         ORDER BY users.display_name, users.username
@@ -222,57 +194,6 @@ public class JdbcAuthMembershipRepository implements AuthMembershipRepository {
                 .list();
     }
 
-    @Override
-    public boolean isEnabledMemberWithRole(String userId, String tenantCode, String roleCode) {
-        return Boolean.TRUE.equals(jdbcClient.sql("""
-                        SELECT EXISTS (
-                            SELECT 1
-                            FROM auth_user_tenant membership
-                            JOIN auth_user users ON users.user_id = membership.user_id AND users.enabled = 1
-                            JOIN auth_user_role assignment
-                              ON assignment.user_id = membership.user_id
-                             AND assignment.tenant_code = membership.tenant_code
-                            JOIN auth_role role
-                              ON role.tenant_code = assignment.tenant_code
-                             AND role.role_code = assignment.role_code
-                             AND role.enabled = 1
-                            WHERE membership.user_id = :userId
-                              AND membership.tenant_code = :tenantCode
-                              AND membership.enabled = 1
-                              AND assignment.role_code = :roleCode
-                        )
-                        """)
-                .param("userId", userId)
-                .param("tenantCode", tenantCode)
-                .param("roleCode", roleCode)
-                .query(Boolean.class)
-                .single());
-    }
-
-    @Override
-    public long countEnabledMembersWithRole(String tenantCode, String roleCode) {
-        Long count = jdbcClient.sql("""
-                        SELECT COUNT(*)
-                        FROM auth_user_tenant membership
-                        JOIN auth_user users ON users.user_id = membership.user_id AND users.enabled = 1
-                        JOIN auth_user_role assignment
-                          ON assignment.user_id = membership.user_id
-                         AND assignment.tenant_code = membership.tenant_code
-                        JOIN auth_role role
-                          ON role.tenant_code = assignment.tenant_code
-                         AND role.role_code = assignment.role_code
-                         AND role.enabled = 1
-                        WHERE membership.tenant_code = :tenantCode
-                          AND membership.enabled = 1
-                          AND assignment.role_code = :roleCode
-                        """)
-                .param("tenantCode", tenantCode)
-                .param("roleCode", roleCode)
-                .query(Long.class)
-                .single();
-        return count == null ? 0 : count;
-    }
-
     private TenantMembership mapRow(ResultSet resultSet, int rowNumber) throws SQLException {
         return new TenantMembership(
                 resultSet.getString("user_id"),
@@ -292,16 +213,6 @@ public class JdbcAuthMembershipRepository implements AuthMembershipRepository {
                 resultSet.getString("display_name"),
                 resultSet.getInt("user_enabled") == 1,
                 resultSet.getInt("membership_enabled") == 1,
-                readStringSet(resultSet, "tenant_role_codes"),
-                readStringSet(resultSet, "global_role_codes"),
                 resultSet.getObject("joined_at", java.time.OffsetDateTime.class));
-    }
-
-    private Set<String> readStringSet(ResultSet resultSet, String column) throws SQLException {
-        Object array = resultSet.getArray(column).getArray();
-        if (array instanceof String[] values) {
-            return Set.copyOf(new LinkedHashSet<>(Arrays.asList(values)));
-        }
-        return Set.of();
     }
 }

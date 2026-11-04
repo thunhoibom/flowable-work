@@ -11,7 +11,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import AgentProviderTable from '../components/AgentProviderTable.vue'
 import TableTagCell from '@/components/TableTagCell.vue'
 import TablePagination from '@/components/TablePagination.vue'
-import { APP_PERMISSION, APP_ROLE, hasAccess } from '@/features/auth/authorization'
+import { hasAccess, ROLES } from '@/features/auth/authorization'
 import { useAuthStore } from '@/stores/auth'
 import { confirmAction } from '@/utils/confirmation'
 import { formatDateTime, formatVersion } from '@/utils/format'
@@ -37,23 +37,10 @@ const authStore = useAuthStore()
 const queryClient = useQueryClient()
 const tenantCode = computed(() => authStore.user?.tenantCode || '')
 const canManageAgents = computed(() =>
-  hasAccess(authStore.user, {
-    requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-    requiredAnyPermissions: [APP_PERMISSION.agentManage],
-  }),
+  hasAccess(authStore.user, { requiredAnyRoles: ROLES.designers }),
 )
-const canReadRuns = computed(() =>
-  hasAccess(authStore.user, {
-    requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-    requiredAnyPermissions: [APP_PERMISSION.agentRunRead],
-  }),
-)
-const canExecuteRuns = computed(() =>
-  hasAccess(authStore.user, {
-    requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-    requiredAnyPermissions: [APP_PERMISSION.agentRunExecute],
-  }),
-)
+const canReadRuns = canManageAgents
+const canExecuteRuns = canManageAgents
 const activeTab = ref(canManageAgents.value ? 'agents' : 'runs')
 const agentRunStatuses: AgentRunStatus[] = [
   'QUEUED',
@@ -177,7 +164,9 @@ const saveAgentMutation = useMutation({
   onSuccess: async () => {
     agentDialogVisible.value = false
     ElMessage.success(
-      editingAgentId.value ? 'Đã cập nhật thông tin Agent' : `Đã tạo Agent và sinh bản nháp ${formatVersion(1)}`,
+      editingAgentId.value
+        ? 'Đã cập nhật thông tin Agent'
+        : `Đã tạo Agent và sinh bản nháp ${formatVersion(1)}`,
     )
     await queryClient.invalidateQueries({ queryKey: queryKeys.agents(tenantCode.value) })
   },
@@ -415,9 +404,11 @@ function providerTypeLabel(type: AgentProviderType) {
   return type === 'MOCK' ? 'Mock (thử nghiệm)' : 'Tương thích OpenAI'
 }
 function failurePolicyLabel(policy: AgentFailurePolicy) {
-  return { FAIL_PROCESS: 'Kết thúc quy trình', CONTINUE_EMPTY: 'Tiếp tục với kết quả rỗng', MANUAL_REVIEW: 'Chuyển cho người xử lý' }[
-    policy
-  ]
+  return {
+    FAIL_PROCESS: 'Kết thúc quy trình',
+    CONTINUE_EMPTY: 'Tiếp tục với kết quả rỗng',
+    MANUAL_REVIEW: 'Chuyển cho người xử lý',
+  }[policy]
 }
 function snapshotField(snapshot: string | undefined, field: string) {
   if (!snapshot) return ''
@@ -470,7 +461,9 @@ function failureCategoryLabel(category: string) {
     <section class="agent-overview">
       <div>
         <span class="overview-icon"><Bot :size="19" /></span>
-        <p><strong>Agent</strong><small>Soạn nội dung, chọn mô hình và cách xử lý khi lỗi</small></p>
+        <p>
+          <strong>Agent</strong><small>Soạn nội dung, chọn mô hình và cách xử lý khi lỗi</small>
+        </p>
       </div>
       <div>
         <span class="overview-icon tone-purple"><ServerCog :size="19" /></span>
@@ -584,7 +577,8 @@ function failureCategoryLabel(category: string) {
                       :disabled="!row.publishedVersion || !row.enabled"
                       @click="openManualRun(row)"
                       >Chạy thử</el-button
-                    ><el-button link type="primary" @click="openVersions(row)">Quản lý phiên bản</el-button
+                    ><el-button link type="primary" @click="openVersions(row)"
+                      >Quản lý phiên bản</el-button
                     ><el-button link type="primary" @click="openAgentEdit(row)"
                       >Sửa</el-button
                     ></template
@@ -665,7 +659,10 @@ function failureCategoryLabel(category: string) {
             <section class="page-actions compact-filter">
               <el-form class="filter-form filter-form--agent" inline @submit.prevent="searchRuns">
                 <el-form-item label="Từ khóa"
-                  ><el-input v-model="runQuery.keyword" clearable placeholder="Agent hoặc công việc"
+                  ><el-input
+                    v-model="runQuery.keyword"
+                    clearable
+                    placeholder="Agent hoặc công việc"
                 /></el-form-item>
                 <el-form-item label="Trạng thái"
                   ><el-select v-model="runQuery.status" clearable
@@ -763,7 +760,10 @@ function failureCategoryLabel(category: string) {
         <CirclePlay :size="20" />
         <p>
           <strong>Chạy bản đã phát hành</strong>
-          <span>Yêu cầu này tạo một lần chạy Agent chính thức, và ghi lần thử, lần gọi mô hình cùng lịch sử trạng thái.</span>
+          <span
+            >Yêu cầu này tạo một lần chạy Agent chính thức, và ghi lần thử, lần gọi mô hình cùng
+            lịch sử trạng thái.</span
+          >
         </p>
       </div>
       <el-form label-position="top">
@@ -813,7 +813,9 @@ function failureCategoryLabel(category: string) {
             </div>
             <div>
               <small>Quy trình liên kết</small>
-              <strong>{{ runDetailQuery.data.value.run.processInstanceId || 'Chưa liên kết' }}</strong>
+              <strong>{{
+                runDetailQuery.data.value.run.processInstanceId || 'Chưa liên kết'
+              }}</strong>
               <span class="run-summary-card__meta">{{
                 runDetailQuery.data.value.run.activityId || '—'
               }}</span>
@@ -880,7 +882,8 @@ function failureCategoryLabel(category: string) {
                 <span>
                   {{
                     getAgentErrorPresentation(runDetailQuery.data.value.run.errorCode)
-                      ?.description || 'Hệ thống đã ghi nhận lần thất bại này. Hãy liên hệ quản trị viên.'
+                      ?.description ||
+                    'Hệ thống đã ghi nhận lần thất bại này. Hãy liên hệ quản trị viên.'
                   }}
                 </span>
                 <span class="run-error-action">
@@ -928,7 +931,9 @@ function failureCategoryLabel(category: string) {
                 </el-table-column>
               </el-table>
             </el-tab-pane>
-            <el-tab-pane :label="`Lần gọi mô hình (${runDetailQuery.data.value.modelInvocations.length})`">
+            <el-tab-pane
+              :label="`Lần gọi mô hình (${runDetailQuery.data.value.modelInvocations.length})`"
+            >
               <el-table :data="runDetailQuery.data.value.modelInvocations" size="small">
                 <el-table-column prop="providerName" label="Nhà cung cấp" min-width="130" />
                 <el-table-column prop="actualModel" label="Mô hình thực tế" min-width="150">
@@ -984,7 +989,9 @@ function failureCategoryLabel(category: string) {
                 description="Lần chạy này chưa có điểm để chạy lại."
               />
             </el-tab-pane>
-            <el-tab-pane :label="`Lịch sử trạng thái (${runDetailQuery.data.value.stateHistory.length})`">
+            <el-tab-pane
+              :label="`Lịch sử trạng thái (${runDetailQuery.data.value.stateHistory.length})`"
+            >
               <div v-if="runDetailQuery.data.value.stateHistory.length" class="state-history-panel">
                 <div class="state-history-guide">
                   <strong>Theo thời gian</strong>
@@ -1080,7 +1087,10 @@ function failureCategoryLabel(category: string) {
             placeholder="ví dụ expense_review"
         /></el-form-item>
         <el-form-item label="Tên Agent" required
-          ><el-input v-model="agentForm.name" maxlength="128" placeholder="Tên cho người dùng nghiệp vụ"
+          ><el-input
+            v-model="agentForm.name"
+            maxlength="128"
+            placeholder="Tên cho người dùng nghiệp vụ"
         /></el-form-item>
         <el-form-item label="Mô tả"
           ><el-input
@@ -1141,10 +1151,13 @@ function failureCategoryLabel(category: string) {
               type="password"
               show-password
               autocomplete="new-password"
-              :placeholder="editingProviderId ? 'Để trống nếu giữ khóa hiện tại' : 'Khóa được lưu an toàn'"
+              :placeholder="
+                editingProviderId ? 'Để trống nếu giữ khóa hiện tại' : 'Khóa được lưu an toàn'
+              "
             />
             <div class="form-help">
-              Sau khi lưu, giao diện không đọc được khóa gốc, chỉ hiện đã cấu hình hay chưa và bốn ký tự cuối.
+              Sau khi lưu, giao diện không đọc được khóa gốc, chỉ hiện đã cấu hình hay chưa và bốn
+              ký tự cuối.
             </div></el-form-item
           >
         </template>
@@ -1167,7 +1180,10 @@ function failureCategoryLabel(category: string) {
       width="880px"
     >
       <div class="version-toolbar">
-        <p>Bản đã phát hành chỉ để xem. Muốn đổi nội dung, mô hình hoặc cách xử lý lỗi thì tạo bản nháp mới.</p>
+        <p>
+          Bản đã phát hành chỉ để xem. Muốn đổi nội dung, mô hình hoặc cách xử lý lỗi thì tạo bản
+          nháp mới.
+        </p>
         <el-button
           type="primary"
           :disabled="hasDraft"
@@ -1249,7 +1265,9 @@ function failureCategoryLabel(category: string) {
             <el-option label="Agent nền tảng (vòng công cụ có kiểm soát)" value="PLATFORM_AGENT" />
             <el-option label="Agent từ xa (đang lên kế hoạch)" value="REMOTE_AGENT" disabled />
           </el-select>
-          <div class="form-help">Cách chạy gắn với phiên bản. Sau khi phát hành thì không sửa được.</div>
+          <div class="form-help">
+            Cách chạy gắn với phiên bản. Sau khi phát hành thì không sửa được.
+          </div>
         </el-form-item>
         <div class="agent-form-grid">
           <el-form-item label="Nhà cung cấp" required
@@ -1286,8 +1304,9 @@ function failureCategoryLabel(category: string) {
               v-model="versionForm.timeoutSeconds"
               :min="1"
               :max="3600"
-              :disabled="editingVersion?.status === 'PUBLISHED'" /></el-form-item
-          >          <el-form-item label="Khi Agent lỗi" required
+              :disabled="editingVersion?.status === 'PUBLISHED'"
+          /></el-form-item>
+          <el-form-item label="Khi Agent lỗi" required
             ><el-select
               v-model="versionForm.failurePolicy"
               :disabled="editingVersion?.status === 'PUBLISHED'"
@@ -1307,8 +1326,9 @@ function failureCategoryLabel(category: string) {
             @remove="removeInputSchemaField"
           />
           <div class="form-help">
-            Trường đối tượng hoặc trường lồng nhau dùng đường dẫn có dấu chấm, ví dụ
-            customer.name. Với danh sách, điền đường dẫn và chọn kiểu từng mục. Quy trình chỉ gửi dữ liệu bạn gắn rõ.
+            Trường đối tượng hoặc trường lồng nhau dùng đường dẫn có dấu chấm, ví dụ customer.name.
+            Với danh sách, điền đường dẫn và chọn kiểu từng mục. Quy trình chỉ gửi dữ liệu bạn gắn
+            rõ.
           </div>
         </el-form-item>
         <el-form-item label="Trường đầu ra của Agent">
@@ -1320,8 +1340,8 @@ function failureCategoryLabel(category: string) {
             @remove="(index) => outputSchemaFields.splice(index, 1)"
           />
           <div class="form-help">
-            Trường đối tượng hoặc trường lồng nhau dùng đường dẫn có dấu chấm, ví dụ
-            customer.name. Với danh sách, điền đường dẫn và chọn kiểu từng mục.
+            Trường đối tượng hoặc trường lồng nhau dùng đường dẫn có dấu chấm, ví dụ customer.name.
+            Với danh sách, điền đường dẫn và chọn kiểu từng mục.
           </div>
         </el-form-item>
       </el-form>

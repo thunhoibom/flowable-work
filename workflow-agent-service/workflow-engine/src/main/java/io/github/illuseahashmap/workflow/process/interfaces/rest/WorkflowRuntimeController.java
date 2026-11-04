@@ -46,71 +46,71 @@ public class WorkflowRuntimeController {
     }
 
     @PostMapping("/process/interaction")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<ProcessInteractionView> startInteraction(
             @Valid @RequestBody ProcessInteractionRequest request) {
         return ApiResponse.ok(interactionService.startInteraction(request));
     }
 
     @PostMapping("/process/start")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<StartProcessResult> start(@Valid @RequestBody StartProcessRequest request) {
         return ApiResponse.ok(workflowRuntimeService.start(request));
     }
 
     @PostMapping("/process/participant-requirements")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<List<ParticipantRequirementView>> startParticipantRequirements(
             @Valid @RequestBody ProcessParticipantRequirementsRequest request) {
         return ApiResponse.ok(workflowRuntimeService.getStartParticipantRequirements(request));
     }
 
     @GetMapping("/process/status")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:read')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR', 'WF_VIEWER')")
     public ApiResponse<ProcessStatusView> processStatus(@RequestParam String processInstanceId) {
         return ApiResponse.ok(workflowRuntimeService.getProcessStatus(processInstanceId));
     }
 
     @GetMapping("/task/status")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:read')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR', 'WF_VIEWER')")
     public ApiResponse<TaskView> taskStatus(@RequestParam String taskId) {
         return ApiResponse.ok(workflowRuntimeService.getTaskStatus(taskId));
     }
 
     @PostMapping("/task/interaction")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<ProcessInteractionView> taskInteraction(
             @Valid @RequestBody TaskInteractionRequest request) {
         return ApiResponse.ok(interactionService.taskInteraction(request));
     }
 
     @PostMapping("/task/participant-requirements")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<List<ParticipantRequirementView>> taskParticipantRequirements(
             @Valid @RequestBody TaskParticipantRequirementsRequest request) {
         return ApiResponse.ok(workflowRuntimeService.getTaskParticipantRequirements(request));
     }
 
     @PostMapping("/task/approve")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<ApproveTaskResult> approve(@Valid @RequestBody ApproveTaskRequest request) {
         return ApiResponse.ok(workflowRuntimeService.approve(request));
     }
 
     @PostMapping("/task/reject")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<ApproveTaskResult> reject(@Valid @RequestBody RejectTaskRequest request) {
         return ApiResponse.ok(workflowRuntimeService.reject(request));
     }
 
     @PostMapping("/task/transfer")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:instance:operate')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<TaskView> transfer(@Valid @RequestBody TransferTaskRequest request) {
         return ApiResponse.ok(workflowRuntimeService.transfer(request));
     }
 
     @GetMapping("/process/definition/diagram")
-    @PreAuthorize("hasRole('SERVICE') or hasAuthority('workflow:definition:read')")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR', 'WF_VIEWER')")
     public ApiResponse<ProcessDefinitionDiagramView> definitionDiagram(
             @RequestParam String processDefinitionKey,
             @RequestParam(required = false) Integer version,

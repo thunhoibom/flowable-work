@@ -18,7 +18,5 @@ workflow:
         allow-private-networks: true
         allow-http: true
   auth:
-    self-registration:
-      enabled: true
     token:
       cookie-secure: false

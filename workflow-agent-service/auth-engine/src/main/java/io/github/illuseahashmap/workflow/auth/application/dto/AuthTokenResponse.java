@@ -12,7 +12,6 @@ public record AuthTokenResponse(
         String username,
         String displayName,
         String tenantCode,
-        Set<String> roles,
-        Set<String> permissions
+        Set<String> roles
 ) {
 }

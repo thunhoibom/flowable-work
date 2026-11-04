@@ -18,7 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/workflow/tenant")
-@PreAuthorize("hasRole('PLATFORM_ADMIN') or hasAuthority('tenant:manage')")
+@PreAuthorize("hasRole('WF_PLATFORM_ADMIN')")
 public class WorkflowTenantController {
 
     private final TenantManagementService tenantManagementService;
@@ -59,7 +59,7 @@ public class WorkflowTenantController {
     }
 
     @PostMapping("/{id}/restore")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('WF_PLATFORM_ADMIN')")
     public ApiResponse<Void> restore(@PathVariable long id) {
         tenantManagementService.restore(id);
         return ApiResponse.ok();

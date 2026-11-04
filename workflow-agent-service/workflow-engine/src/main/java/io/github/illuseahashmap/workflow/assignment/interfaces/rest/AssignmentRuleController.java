@@ -20,7 +20,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/workflow/node-assignment-rule")
-@PreAuthorize("hasRole('SERVICE') or hasAuthority('assignment:manage')")
+@PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
 public class AssignmentRuleController {
 
     private final AssignmentRuleService assignmentRuleService;

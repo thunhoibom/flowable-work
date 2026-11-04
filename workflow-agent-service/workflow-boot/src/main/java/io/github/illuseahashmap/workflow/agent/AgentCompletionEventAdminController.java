@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 @RestController
 @RequestMapping("/operations/agent-completion-events")
-@PreAuthorize("hasRole('PLATFORM_ADMIN')")
+@PreAuthorize("hasRole('WF_PLATFORM_ADMIN')")
 public class AgentCompletionEventAdminController {
 
     private final AgentCompletionOperationsService operationsService;

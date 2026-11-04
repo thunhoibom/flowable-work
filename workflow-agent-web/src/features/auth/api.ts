@@ -1,5 +1,5 @@
-import { apiClient } from '@/api/http'
-import type { AuthSession, AuthUser, LoginRequest, RegisterRequest, TenantOption } from './types'
+import { apiClient, TENANT_HEADER } from '@/api/http'
+import type { AuthSession, AuthUser, LoginRequest, SitemapEntry, TenantOption } from './types'
 
 export function login(request: LoginRequest) {
   return apiClient.post<AuthSession>('/auth/login', request)
@@ -9,28 +9,25 @@ export function ensureCsrfToken() {
   return apiClient.get<string>('/auth/csrf')
 }
 
-export function register(request: RegisterRequest) {
-  return apiClient.post<AuthSession>('/auth/register', request)
-}
-
-export function getCurrentUser() {
-  return apiClient.get<AuthUser>('/auth/me')
+/** Current user; with `tenantCode` the request also validates membership of that tenant. */
+export function getCurrentUser(tenantCode?: string) {
+  return apiClient.get<AuthUser>(
+    '/auth/me',
+    tenantCode ? { headers: { [TENANT_HEADER]: tenantCode } } : undefined,
+  )
 }
 
 export function updateProfile(displayName: string) {
   return apiClient.patch<AuthUser>('/auth/me', { displayName })
 }
 
-export function changePassword(currentPassword: string, newPassword: string) {
-  return apiClient.post<void>('/auth/me/password', { currentPassword, newPassword })
-}
-
 export function getTenants() {
   return apiClient.get<TenantOption[]>('/auth/tenants')
 }
 
-export function switchTenant(tenantCode: string) {
-  return apiClient.post<AuthSession>('/auth/switch-tenant', { tenantCode })
+/** The user's menu, managed in EIM (like rsa-core-service `/auth/sitemaps`). */
+export function getSitemap() {
+  return apiClient.get<SitemapEntry[]>('/auth/sitemaps')
 }
 
 export function logout() {

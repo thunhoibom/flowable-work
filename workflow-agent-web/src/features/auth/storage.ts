@@ -22,8 +22,7 @@ function isValidAuthSession(value: unknown): value is AuthSession {
     Number.isFinite(session.expiresIn) &&
     Number.isFinite(expiresAt) &&
     expiresAt > Date.now() &&
-    isStringArray(session.roles) &&
-    isStringArray(session.permissions)
+    isStringArray(session.roles)
   )
 }
 

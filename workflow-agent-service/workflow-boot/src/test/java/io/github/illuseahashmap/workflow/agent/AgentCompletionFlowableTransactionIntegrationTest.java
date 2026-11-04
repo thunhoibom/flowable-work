@@ -55,7 +55,10 @@ class AgentCompletionFlowableTransactionIntegrationTest {
         registry.add("flowable.async-executor-activate", () -> "false");
         registry.add("workflow.agent.worker.enabled", () -> "false");
         registry.add("workflow.security.enabled", () -> "false");
-        registry.add("workflow.auth.token.secret", () -> "integration-test-secret-at-least-32-bytes");
+        // Sign-in is not exercised here; the realm is never contacted.
+        registry.add("workflow.auth.keycloak.server-url", () -> "http://127.0.0.1:9");
+        registry.add("workflow.auth.keycloak.realm", () -> "rsa");
+        registry.add("workflow.auth.keycloak.client-id", () -> "VETC.WORKFLOW");
         registry.add("workflow.runtime.environment", () -> "test");
     }
 

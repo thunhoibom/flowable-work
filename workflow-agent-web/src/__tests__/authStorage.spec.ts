@@ -7,7 +7,6 @@ const validSession = {
   displayName: 'Alice',
   tenantCode: 'default',
   roles: ['USER'],
-  permissions: ['workflow:definition:read'],
   tokenType: 'Bearer',
   accessToken: 'token',
   expiresIn: 3600,

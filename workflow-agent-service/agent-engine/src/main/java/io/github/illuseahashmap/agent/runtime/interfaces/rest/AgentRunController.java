@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/agent-runs")
-@PreAuthorize("hasRole('PLATFORM_ADMIN') or hasAuthority('agent:run:read')")
+@PreAuthorize("hasAnyRole('WF_PLATFORM_ADMIN', 'WF_ADMIN')")
 public class AgentRunController {
 
     private final AgentRunQueryService service;

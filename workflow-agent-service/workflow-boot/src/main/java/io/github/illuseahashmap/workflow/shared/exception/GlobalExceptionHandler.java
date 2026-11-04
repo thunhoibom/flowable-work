@@ -27,6 +27,7 @@ public class GlobalExceptionHandler {
             case CONFLICT -> HttpStatus.CONFLICT;
             case BAD_REQUEST -> HttpStatus.BAD_REQUEST;
             case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+            case EIM_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             default -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
         String message = status.is5xxServerError()

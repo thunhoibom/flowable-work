@@ -100,8 +100,8 @@ class WorkflowRuntimeServiceImplTest {
                 "admin",
                 "平台管理员",
                 "tenant-one",
-                Set.of("PLATFORM_ADMIN"),
-                Set.of("workflow:instance:operate")));
+                Set.of("WF_PLATFORM_ADMIN"),
+                Set.of()));
         when(definitionService.getActiveVersion("leave-approval")).thenReturn(
                 new ActiveProcessVersionResult(
                         "tenant-1", "leave-approval", "leave-approval:1:100", 1, "admin",
@@ -158,7 +158,7 @@ class WorkflowRuntimeServiceImplTest {
                 new TenantContext.TenantInfo("tenant-1", "tenant-one", "Tenant One"));
         when(principalProvider.current()).thenReturn(new CurrentPrincipal(
                 "USER", "user-1", "operator", "Operator", "tenant-one",
-                Set.of("TENANT_ADMIN"), Set.of("workflow:instance:operate")));
+                Set.of("WF_OPERATOR"), Set.of()));
         when(taskService.createTaskQuery()).thenReturn(taskQuery);
         when(taskQuery.taskId("task-1")).thenReturn(taskQuery);
         when(taskQuery.active()).thenReturn(taskQuery);
@@ -189,7 +189,7 @@ class WorkflowRuntimeServiceImplTest {
                 new TenantContext.TenantInfo("tenant-1", "tenant-one", "Tenant One"));
         when(principalProvider.current()).thenReturn(new CurrentPrincipal(
                 "USER", "user-1", "operator", "Operator", "tenant-one",
-                Set.of("TENANT_ADMIN"), Set.of("workflow:instance:operate")));
+                Set.of("WF_OPERATOR"), Set.of()));
         when(taskService.createTaskQuery()).thenReturn(taskQuery);
         when(taskQuery.taskId("task-1")).thenReturn(taskQuery);
         when(taskQuery.active()).thenReturn(taskQuery);

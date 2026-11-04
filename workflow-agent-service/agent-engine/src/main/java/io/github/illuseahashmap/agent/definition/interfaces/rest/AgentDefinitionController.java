@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/agents")
-@PreAuthorize("hasRole('PLATFORM_ADMIN') or hasAuthority('agent:manage')")
+@PreAuthorize("hasAnyRole('WF_PLATFORM_ADMIN', 'WF_ADMIN')")
 public class AgentDefinitionController {
 
     private final AgentDefinitionService service;

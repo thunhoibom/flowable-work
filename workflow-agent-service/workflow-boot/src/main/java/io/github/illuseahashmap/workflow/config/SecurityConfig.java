@@ -1,5 +1,6 @@
 package io.github.illuseahashmap.workflow.config;
 
+import io.github.illuseahashmap.workflow.shared.context.WorkflowRoles;
 import io.github.illuseahashmap.workflow.auth.interfaces.security.AuthSecurityFilter;
 import io.github.illuseahashmap.workflow.security.infrastructure.token.ServiceTokenAuthenticationFilter;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipalContext;
@@ -44,7 +45,6 @@ public class SecurityConfig {
                         .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy())
                         .ignoringRequestMatchers(request -> "POST".equalsIgnoreCase(request.getMethod())
                                 && ("/auth/login".equals(request.getRequestURI())
-                                || "/auth/register".equals(request.getRequestURI())
                                 || request.getRequestURI().startsWith("/service-callbacks/")))
                         .ignoringRequestMatchers(request -> StringUtils.hasText(
                                 request.getHeader(ServiceTokenAuthenticationFilter.TOKEN_HEADER))))
@@ -52,10 +52,10 @@ public class SecurityConfig {
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                         .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
                 .authorizeHttpRequests(registry -> registry
-                        .requestMatchers("/actuator/health", "/actuator/info", "/auth/csrf", "/auth/register", "/auth/login", "/auth/logout").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/info", "/auth/csrf", "/auth/login", "/auth/refresh", "/auth/logout").permitAll()
                         // The caller is an external system. The correlation id is the capability.
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/service-callbacks/**").permitAll()
-                        .requestMatchers("/actuator/prometheus").hasRole("PLATFORM_ADMIN")
+                        .requestMatchers("/actuator/prometheus").hasRole(WorkflowRoles.PLATFORM_ADMIN)
                         .anyRequest().authenticated())
                 .addFilterBefore(serviceTokenAuthenticationFilter, CsrfFilter.class)
                 .addFilterBefore(authSecurityFilter, ServiceTokenAuthenticationFilter.class)

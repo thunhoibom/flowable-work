@@ -28,10 +28,6 @@ public interface AuthMembershipRepository {
 
     void lockTenantMemberships(String tenantCode);
 
-    boolean isEnabledMemberWithRole(String userId, String tenantCode, String roleCode);
-
-    long countEnabledMembersWithRole(String tenantCode, String roleCode);
-
     record TenantMembership(
             String userId,
             String tenantId,
@@ -49,8 +45,6 @@ public interface AuthMembershipRepository {
             String displayName,
             boolean userEnabled,
             boolean membershipEnabled,
-            Set<String> tenantRoleCodes,
-            Set<String> globalRoleCodes,
             OffsetDateTime joinedAt
     ) {
     }

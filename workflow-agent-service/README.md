@@ -18,7 +18,7 @@ Backend for Workflow Agent, an open-source, Java-first enterprise Human-Agent Wo
 workflow-agent-service
 |-- pom.xml
 |-- shared-kernel    Shared response, exception, context, and principal contracts
-|-- auth-engine      User login, registration, tenant membership, roles, menus, and permissions
+|-- auth-engine      Keycloak SSO sign-in, EIM roles and menu, tenants, tenant membership
 |-- workflow-engine  Workflow domain, use cases, and Flowable adapters
 |-- rules-engine      Reusable condition and priority rule engine
 |-- agent-engine      Agent definitions, reliable runtime, providers, retrieval, and guardrails
@@ -62,7 +62,7 @@ Flowable, JDBC, Redis, and servlet APIs remain in infrastructure adapters. Appli
 
 `shared-kernel` contains dependency-light contracts that can be used by multiple engines, such as API responses, business exceptions, tenant context, and current principal models.
 
-`auth-engine` owns browser/user authentication, tenant lifecycle, membership, roles, menus, and permissions.
+`auth-engine` owns browser/user authentication (Keycloak SSO), tenant lifecycle and membership, and the EIM menu. User roles are not stored locally.
 The existing `workflow-engine.security.infrastructure.token` package remains the service-to-service token adapter until a dedicated gateway or service-auth module is introduced.
 
 ## Documentation
@@ -82,25 +82,27 @@ The existing `workflow-engine.security.infrastructure.token` package remains the
 - process deployment, version activation, definition queries, diagrams, and deletion
 - process start, status, task approval, rejection, transfer, and automatic completion
 - process instance paging, detail, variables, termination, and highlighted diagrams
-- user registration and login with tenant-aware bearer tokens
-- tenant membership, tenant switching, tenant-scoped roles and permission checks
+- Keycloak SSO login (realm `rsa`, client `VETC.WORKFLOW`); tenant chosen per request with `X-Tenant-Code`
+- role checks from the token's `eim_roles` claim and a menu from the EIM sitemap, as in rsa-core-service
 - tenant management and Flowable tenant isolation
 - conditional node assignment rules, historical-version inheritance, and assignee resolution
 - per-client encrypted service tokens with tenant/path authorization, request binding, expiration, and replay protection
 
 ## Security Contract
 
-Built-in browser roles follow this access model:
+Users sign in only through Keycloak SSO; there is no local password, registration or administrator bootstrap.
+Roles are assigned in EIM and arrive in the access token's `eim_roles` claim; each endpoint lists the roles it accepts
+in `@PreAuthorize("hasAnyRole(...)")`, as rsa-core-service does. The menu is the user's EIM sitemap (`GET /auth/sitemaps`).
 
 | Role | Access |
 | --- | --- |
-| `USER` | Read process definitions and process instances |
-| `TENANT_ADMIN` | Manage members, roles, process definitions, instances, and assignment rules in the current tenant |
-| `PLATFORM_ADMIN` | Full workflow access plus member, role, and tenant management |
+| `WF_VIEWER` | Read process definitions and process instances |
+| `WF_OPERATOR` | Viewer access plus start processes and handle tasks |
+| `WF_ADMIN` | Operator access plus definitions, assignment rules, services, and agents |
+| `WF_PLATFORM_ADMIN` | Full access plus tenants and tenant members; bypasses tenant row-level security |
 
-Roles and permissions are tenant-scoped, except `PLATFORM_ADMIN`, which is a global platform role. Switching tenants reissues the browser token for the selected membership.
-Public self-registration always creates a `USER` membership in the default tenant. Administrative roles can only be assigned by a platform administrator.
-Built-in tenant roles are immutable. Tenant administrators can create custom tenant roles from the available permission catalog when business duties need to be separated further.
+Tenant membership stays local: it only scopes a user's data and is managed by `WF_PLATFORM_ADMIN`. A user is added to the
+default tenant on first sign-in.
 
 Service APIs use one `X-Workflow-Token` header. The token envelope is:
 
@@ -142,7 +144,9 @@ Start the local profile with PostgreSQL on `localhost:5432/workflow_agent`:
 
 ```powershell
 $env:SPRING_PROFILES_ACTIVE='local'
-$env:WORKFLOW_AUTH_TOKEN_SECRET='<at least 32 random characters>'
+$env:WORKFLOW_KEYCLOAK_SERVER_URL='https://uat-auth-sso.vetc.com.vn'
+$env:WORKFLOW_KEYCLOAK_CLIENT_ID='VETC.WORKFLOW'
+$env:WORKFLOW_KEYCLOAK_CLIENT_SECRET='<client secret>'
 mvn -pl workflow-boot -am spring-boot:run
 ```
 
@@ -150,7 +154,9 @@ Required secrets:
 
 ```text
 WORKFLOW_MASTER_KEY_BASE64=<base64 encoded 256-bit key for database-encrypted client secrets>
-WORKFLOW_AUTH_TOKEN_SECRET=<at least 32 random characters; no built-in default>
+WORKFLOW_KEYCLOAK_SERVER_URL=<Keycloak base URL; realm defaults to rsa>
+WORKFLOW_KEYCLOAK_CLIENT_ID=VETC.WORKFLOW
+WORKFLOW_KEYCLOAK_CLIENT_SECRET=<client secret>
 ```
 
 Optional database variables:

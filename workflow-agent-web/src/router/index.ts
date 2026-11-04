@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppShell from '@/layouts/AppShell.vue'
 import { agentsEnabled } from '@/config/product'
-import { APP_PERMISSION, APP_ROLE, hasAccess, readAuthSession } from '@/features/auth'
+import { hasAccess, readAuthSession, ROLES } from '@/features/auth'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -27,9 +27,13 @@ const router = createRouter({
             import('@/features/process-definition/views/ProcessDefinitionListView.vue'),
           meta: {
             title: 'Quy trình',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.definitionRead, APP_PERMISSION.definitionWrite],
-            navigation: { label: 'Quy trình', icon: 'definitions', order: 10 },
+            requiredAnyRoles: ROLES.anyUser,
+            navigation: {
+              menuCode: 'WF_DEFINITION',
+              label: 'Quy trình',
+              icon: 'definitions',
+              order: 10,
+            },
           },
         },
         {
@@ -39,8 +43,7 @@ const router = createRouter({
           meta: {
             title: 'Thiết kế',
             immersive: true,
-            requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.definitionWrite],
+            requiredAnyRoles: ROLES.designers,
           },
         },
         {
@@ -49,9 +52,13 @@ const router = createRouter({
           component: () => import('@/features/process-instance/views/ProcessInstanceListView.vue'),
           meta: {
             title: 'Công việc',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.instanceRead, APP_PERMISSION.instanceOperate],
-            navigation: { label: 'Công việc', icon: 'instances', order: 20 },
+            requiredAnyRoles: ROLES.anyUser,
+            navigation: {
+              menuCode: 'WF_INSTANCE',
+              label: 'Công việc',
+              icon: 'instances',
+              order: 20,
+            },
           },
         },
         {
@@ -61,8 +68,7 @@ const router = createRouter({
             import('@/features/process-instance/views/ProcessInstanceDetailView.vue'),
           meta: {
             title: 'Chi tiết công việc',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.instanceRead, APP_PERMISSION.instanceOperate],
+            requiredAnyRoles: ROLES.anyUser,
           },
         },
         {
@@ -71,9 +77,8 @@ const router = createRouter({
           component: () => import('@/features/service-registry/ServiceCatalogView.vue'),
           meta: {
             title: 'Dịch vụ',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.definitionWrite],
-            navigation: { label: 'Dịch vụ', icon: 'services', order: 35 },
+            requiredAnyRoles: ROLES.designers,
+            navigation: { menuCode: 'WF_SERVICE', label: 'Dịch vụ', icon: 'services', order: 35 },
           },
         },
         {
@@ -82,9 +87,13 @@ const router = createRouter({
           component: () => import('@/features/assignment-rule/views/AssignmentRuleListView.vue'),
           meta: {
             title: 'Phân công',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.assignmentManage],
-            navigation: { label: 'Phân công', icon: 'assignments', order: 30 },
+            requiredAnyRoles: ROLES.designers,
+            navigation: {
+              menuCode: 'WF_ASSIGNMENT',
+              label: 'Phân công',
+              icon: 'assignments',
+              order: 30,
+            },
           },
         },
         {
@@ -93,9 +102,8 @@ const router = createRouter({
           component: () => import('@/features/access/views/AccessManagementView.vue'),
           meta: {
             title: 'Thành viên',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.memberManage, APP_PERMISSION.roleManage],
-            navigation: { label: 'Thành viên', icon: 'access', order: 50 },
+            requiredAnyRoles: ROLES.platformAdministrators,
+            navigation: { menuCode: 'WF_MEMBER', label: 'Thành viên', icon: 'access', order: 50 },
           },
         },
         {
@@ -104,10 +112,16 @@ const router = createRouter({
           component: () => import('@/features/agent/views/AgentManagementView.vue'),
           meta: {
             title: 'Agent',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator, APP_ROLE.tenantAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.agentManage, APP_PERMISSION.agentRunRead],
+            requiredAnyRoles: ROLES.designers,
             ...(agentsEnabled
-              ? { navigation: { label: 'Agent', icon: 'agents' as const, order: 40 } }
+              ? {
+                  navigation: {
+                    menuCode: 'WF_AGENT',
+                    label: 'Agent',
+                    icon: 'agents' as const,
+                    order: 40,
+                  },
+                }
               : {}),
           },
         },
@@ -117,12 +131,17 @@ const router = createRouter({
           component: () => import('@/features/tenant/views/TenantListView.vue'),
           meta: {
             title: 'Tổ chức',
-            requiredAnyRoles: [APP_ROLE.platformAdministrator],
-            requiredAnyPermissions: [APP_PERMISSION.tenantManage],
-            navigation: { label: 'Tổ chức', icon: 'tenants', order: 60 },
+            requiredAnyRoles: ROLES.platformAdministrators,
+            navigation: { menuCode: 'WF_TENANT', label: 'Tổ chức', icon: 'tenants', order: 60 },
           },
         },
       ],
+    },
+    {
+      path: '/no-access',
+      name: 'no-access',
+      component: () => import('@/views/NoAccessView.vue'),
+      meta: { title: 'Chưa được cấp quyền' },
     },
     {
       path: '/:pathMatch(.*)*',
@@ -139,7 +158,8 @@ function firstAuthorizedRoute(session: ReturnType<typeof readAuthSession>) {
     .filter((route) => route.name && route.meta.navigation && hasAccess(session, route.meta))
     .sort((left, right) => left.meta.navigation!.order - right.meta.navigation!.order)[0]
   if (firstRoute) return { name: firstRoute.name }
-  return { name: 'not-found' }
+  // Signed in through SSO but EIM grants no WF_* role: explain instead of showing a 404.
+  return { name: 'no-access' }
 }
 
 router.beforeEach((to) => {

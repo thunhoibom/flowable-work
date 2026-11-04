@@ -219,6 +219,27 @@ select {
   margin-top: 20px;
 }
 
+.navigation-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--el-color-danger, #c45656);
+  background: var(--el-color-danger-light-9, #fef0f0);
+}
+
+.navigation-error .el-button {
+  gap: 4px;
+  padding: 0;
+}
+
+.is-sidebar-collapsed .navigation-error span {
+  display: none;
+}
+
 .nav-item {
   height: 46px;
   display: flex;

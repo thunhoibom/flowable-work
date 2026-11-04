@@ -23,7 +23,7 @@ class AgentCompletionOperationsServiceTest {
     private final SecurityAuditRepository auditRepository = mock(SecurityAuditRepository.class);
     private final CurrentPrincipalProvider principalProvider = () -> new CurrentPrincipal(
             "USER", "admin-a", "admin", "Administrator", "platform",
-            Set.of("PLATFORM_ADMIN"), Set.of());
+            Set.of("WF_PLATFORM_ADMIN"), Set.of());
     private final AgentCompletionOperationsService service = new AgentCompletionOperationsService(
             eventStore, auditRepository, principalProvider);
 

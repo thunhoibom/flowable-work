@@ -1,5 +1,5 @@
 import 'vue-router'
-import type { AppPermission, AppRole } from '@/features/auth'
+import type { AppRole } from '@/features/auth'
 
 export type NavigationIcon =
   | 'definitions'
@@ -15,9 +15,14 @@ declare module 'vue-router' {
     title?: string
     public?: boolean
     immersive?: boolean
+    /** Roles allowed on this screen; mirrors the backend `hasAnyRole(...)`. */
     requiredAnyRoles?: readonly AppRole[]
-    requiredAnyPermissions?: readonly AppPermission[]
+    /**
+     * Menu entry. The item is shown when the user's EIM sitemap contains `menuCode`; its
+     * label and position come from EIM (`label`/`order` are fallbacks).
+     */
     navigation?: {
+      menuCode: string
       label: string
       icon: NavigationIcon
       order: number

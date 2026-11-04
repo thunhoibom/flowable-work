@@ -19,14 +19,14 @@ class UserDirectoryServiceImplTest {
     private final AuthMembershipRepository membershipRepository = mock(AuthMembershipRepository.class);
     private final CurrentPrincipalProvider principalProvider = () -> new CurrentPrincipal(
             "USER", "user-1", "operator", "Operator", "tenant-a",
-            Set.of("TENANT_ADMIN"), Set.of("workflow:instance:operate"));
+            Set.of("WF_OPERATOR"), Set.of());
     private final UserDirectoryServiceImpl service = new UserDirectoryServiceImpl(
             membershipRepository, principalProvider);
 
     @Test
     void searchesEnabledTenantMembersWithBoundedPagination() {
         AuthMembershipRepository.TenantMember member = new AuthMembershipRepository.TenantMember(
-                "user-2", "alice", "Alice", true, true, Set.of("USER"), Set.of(), null);
+                "user-2", "alice", "Alice", true, true, null);
         when(membershipRepository.pageEnabledMembers("tenant-a", "ali", 1, 20))
                 .thenReturn(new PageSlice<>(1, 1, 20, List.of(member)));
 

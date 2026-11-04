@@ -12,14 +12,13 @@ public record BrowserAuthResponse(
         String username,
         String displayName,
         String tenantCode,
-        Set<String> roles,
-        Set<String> permissions
+        Set<String> roles
 ) {
 
     public static BrowserAuthResponse from(AuthTokenResponse response) {
         return new BrowserAuthResponse(
                 response.tokenType(), response.expiresIn(), response.expiresAt(),
                 response.userId(), response.username(), response.displayName(),
-                response.tenantCode(), response.roles(), response.permissions());
+                response.tenantCode(), response.roles());
     }
 }

@@ -71,22 +71,29 @@ workflow:
     public-paths:
       - /actuator/health
       - /actuator/info
-      - /auth/register
       - /auth/login
+      - /auth/refresh
+      - /auth/logout
       - /auth/csrf
   auth:
-    self-registration:
-      enabled: ${WORKFLOW_SELF_REGISTRATION_ENABLED:false}
-      tenant-code: ${WORKFLOW_SELF_REGISTRATION_TENANT_CODE:default}
-    bootstrap-admin:
-      enabled: ${WORKFLOW_BOOTSTRAP_ADMIN_ENABLED:false}
-      username: ${WORKFLOW_BOOTSTRAP_ADMIN_USERNAME:}
-      password: ${WORKFLOW_BOOTSTRAP_ADMIN_PASSWORD:}
-      display-name: ${WORKFLOW_BOOTSTRAP_ADMIN_DISPLAY_NAME:Platform Administrator}
+    # Sign-in is Keycloak SSO only (same realm as rsa-core-service). Requests carry the Keycloak
+    # access token (cookie or Bearer); roles come from its eim_roles claim (assigned in EIM), the
+    # tenant from the X-Tenant-Code header.
+    keycloak:
+      server-url: ${WORKFLOW_KEYCLOAK_SERVER_URL:}
+      realm: ${WORKFLOW_KEYCLOAK_REALM:rsa}
+      client-id: ${WORKFLOW_KEYCLOAK_CLIENT_ID:}
+      client-secret: ${WORKFLOW_KEYCLOAK_CLIENT_SECRET:}
+      issuer-uri: ${WORKFLOW_KEYCLOAK_ISSUER_URI:}
+      jwk-set-uri: ${WORKFLOW_KEYCLOAK_JWK_SET_URI:}
+      allowed-client-ids: ${WORKFLOW_KEYCLOAK_ALLOWED_CLIENT_IDS:}
+      auto-provision: ${WORKFLOW_KEYCLOAK_AUTO_PROVISION:true}
+      default-tenant-code: ${WORKFLOW_KEYCLOAK_DEFAULT_TENANT_CODE:default}
+    # EIM sitemap: the user's menu (GET /auth/sitemaps), as in rsa-core-service.
+    eim:
+      app-code: ${WORKFLOW_EIM_APP_CODE:VETC.WORKFLOW}
+      sitemap-path: /auth/sitemaps-for-role-prl
     token:
-      issuer: workflow-agent-service
-      secret: ${WORKFLOW_AUTH_TOKEN_SECRET:}
-      ttl-seconds: ${WORKFLOW_AUTH_TOKEN_TTL_SECONDS:7200}
       cookie-secure: ${WORKFLOW_AUTH_COOKIE_SECURE:true}
 
 management:

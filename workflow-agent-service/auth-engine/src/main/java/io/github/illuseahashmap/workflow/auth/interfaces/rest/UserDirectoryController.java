@@ -21,7 +21,7 @@ public class UserDirectoryController {
     }
 
     @GetMapping("/users")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN') or hasAnyAuthority('workflow:instance:operate','assignment:manage')")
+    @PreAuthorize("hasAnyRole('WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR')")
     public ApiResponse<PageResult<DirectoryUserView>> users(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer pageNum,

@@ -49,7 +49,7 @@ class AgentDefinitionServiceImplTest {
                 "tenant-id", "tenant-a", "Tenant A"));
         when(principalProvider.current()).thenReturn(new CurrentPrincipal(
                 "USER", "user-1", "admin", "Admin", "tenant-a",
-                Set.of("TENANT_ADMIN"), Set.of("agent:manage")));
+                Set.of("WF_ADMIN"), Set.of()));
     }
 
     @Test
