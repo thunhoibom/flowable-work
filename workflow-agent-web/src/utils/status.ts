@@ -10,6 +10,7 @@ const STATUS_PRESENTATIONS: Record<string, StatusPresentation> = {
   DISABLED: { label: 'Đã tắt', tone: 'info' },
   DRAFT: { label: 'Bản nháp', tone: 'warning' },
   PUBLISHED: { label: 'Đã phát hành', tone: 'success' },
+  SUSPENDED: { label: 'Đã ngừng', tone: 'warning' },
   QUEUED: { label: 'Đang chờ', tone: 'primary' },
   PENDING: { label: 'Sắp chạy', tone: 'info' },
   ACTIVE: { label: 'Cần làm', tone: 'primary' },

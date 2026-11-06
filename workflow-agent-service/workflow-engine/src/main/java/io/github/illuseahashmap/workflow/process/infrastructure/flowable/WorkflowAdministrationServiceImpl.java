@@ -9,6 +9,8 @@ import io.github.illuseahashmap.workflow.process.application.dto.ProcessDiagramD
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessInstanceDetailView;
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessInstanceSummaryView;
 import io.github.illuseahashmap.workflow.process.application.dto.TerminateProcessRequest;
+import io.github.illuseahashmap.workflow.process.application.port.ProcessDraftRepository;
+import io.github.illuseahashmap.workflow.process.application.port.ProcessReleaseRepository;
 import io.github.illuseahashmap.workflow.process.infrastructure.lock.ProcessInstanceTransactionExecutor;
 import io.github.illuseahashmap.workflow.shared.context.TenantProvider;
 import io.github.illuseahashmap.workflow.shared.exception.BusinessException;
@@ -37,6 +39,8 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
     private final TenantProvider tenantProvider;
     private final AssignmentRuleService assignmentRuleService;
     private final WorkflowOperationAuditService auditService;
+    private final ProcessDraftRepository drafts;
+    private final ProcessReleaseRepository releases;
 
     public WorkflowAdministrationServiceImpl(RepositoryService repositoryService,
                                              RuntimeService runtimeService,
@@ -47,7 +51,11 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
                                              WorkflowInstanceReadService instanceReadService,
                                              TenantProvider tenantProvider,
                                              AssignmentRuleService assignmentRuleService,
-                                             WorkflowOperationAuditService auditService) {
+                                             WorkflowOperationAuditService auditService,
+                                             ProcessDraftRepository drafts,
+                                             ProcessReleaseRepository releases) {
+        this.drafts = drafts;
+        this.releases = releases;
         this.repositoryService = repositoryService;
         this.runtimeService = runtimeService;
         this.historyService = historyService;
@@ -130,11 +138,27 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
                 .processDefinitionKey(processDefinitionKey)
                 .list();
         if (definitions.isEmpty()) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "Process definition does not exist");
+            if (drafts.find(tenantId, processDefinitionKey).isEmpty()) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "Process definition does not exist");
+            }
+            drafts.delete(tenantId, processDefinitionKey);
+            auditService.record(
+                    "PROCESS_DRAFT_DELETED", null, processDefinitionKey,
+                    null, processDefinitionKey, "DRAFT", "DELETED", null);
+            return;
+        }
+        long running = runtimeService.createProcessInstanceQuery()
+                .processInstanceTenantId(tenantId).processDefinitionKey(processDefinitionKey).count();
+        if (running > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Còn " + running + " instance đang chạy. Hãy kết thúc chúng hoặc ngừng phát hành.");
         }
         assignmentRuleService.deleteByProcessDefinitionKey(processDefinitionKey);
         definitions.stream().map(ProcessDefinition::getDeploymentId).distinct()
                 .forEach(deploymentId -> repositoryService.deleteDeployment(deploymentId, true));
+        drafts.delete(tenantId, processDefinitionKey);
+        releases.deleteByKey(tenantId, processDefinitionKey);
+        // Legacy table, kept until it is dropped in a later migration.
         jdbcTemplate.update("""
                 DELETE FROM workflow_active_version WHERE tenant_id = ? AND process_definition_key = ?
                 """, tenantId, processDefinitionKey);
@@ -157,6 +181,21 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
                 .singleResult();
         if (definition == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Process definition version does not exist");
+        }
+        ProcessDefinition latest = repositoryService.createProcessDefinitionQuery()
+                .processDefinitionTenantId(tenantId)
+                .processDefinitionKey(processDefinitionKey)
+                .latestVersion()
+                .singleResult();
+        if (latest != null && latest.getId().equals(definition.getId())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "Không xoá được bản mới nhất. Hãy ngừng phát hành nếu không muốn dùng nữa.");
+        }
+        long running = runtimeService.createProcessInstanceQuery()
+                .processInstanceTenantId(tenantId).processDefinitionId(definition.getId()).count();
+        if (running > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Còn " + running + " instance đang chạy trên version này");
         }
         assignmentRuleService.deleteByProcessDefinition(definition.getId());
         repositoryService.deleteDeployment(definition.getDeploymentId(), true);

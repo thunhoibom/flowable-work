@@ -50,6 +50,11 @@
                 <version>${flowable.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.flowable</groupId>
+                <artifactId>flowable-secure-javascript</artifactId>
+                <version>${flowable.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
                 <version>${testcontainers.version}</version>

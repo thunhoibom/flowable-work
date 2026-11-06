@@ -77,9 +77,13 @@ public final class WorkflowTaskOperationSupport {
                 throw new BusinessException(ErrorCode.BAD_REQUEST,
                         "Process definition id does not match the requested process definition key");
             }
+            if (!definitionService.runningProcessDefinitionId(normalizedKey).equals(definitionId)) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "Only the published version can be started: " + normalizedKey);
+            }
             return definitionId;
         }
-        return definitionService.getActiveVersion(normalizedKey).processDefinitionId();
+        return definitionService.runningProcessDefinitionId(normalizedKey);
     }
 
     public Task activeTask(String taskId) {

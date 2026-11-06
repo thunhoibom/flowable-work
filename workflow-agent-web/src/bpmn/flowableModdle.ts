@@ -32,6 +32,23 @@ const flowableModdle = {
       ],
     },
     {
+      name: 'ScriptTask',
+      extends: ['bpmn:ScriptTask'],
+      properties: [
+        { name: 'resultVariable', isAttr: true, type: 'String' },
+        { name: 'autoStoreVariables', isAttr: true, type: 'Boolean' },
+      ],
+    },
+    {
+      name: 'In',
+      superClass: ['Element'],
+      properties: [
+        { name: 'source', isAttr: true, type: 'String' },
+        { name: 'sourceExpression', isAttr: true, type: 'String' },
+        { name: 'target', isAttr: true, type: 'String' },
+      ],
+    },
+    {
       name: 'TaskListener',
       superClass: ['Element'],
       properties: [

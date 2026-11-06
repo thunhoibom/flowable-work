@@ -28,4 +28,7 @@ public interface AssignmentRuleService {
     void deleteByProcessDefinitionKey(String processDefinitionKey);
 
     AssignmentRuleInheritResult inherit(String processDefinitionId);
+
+    /** Copies rules from one definition to another of the same key. Missing tasks are skipped, not errors. */
+    AssignmentRuleInheritResult copyRules(String sourceProcessDefinitionId, String targetProcessDefinitionId);
 }

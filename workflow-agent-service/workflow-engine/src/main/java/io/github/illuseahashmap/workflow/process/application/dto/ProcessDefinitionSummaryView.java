@@ -14,6 +14,7 @@ public record ProcessDefinitionSummaryView(
         String activeDeploymentId,
         OffsetDateTime activeUpdateTime,
         String publishStatus,
-        String tenantId
+        String tenantId,
+        boolean hasUnpublishedChanges
 ) {
 }

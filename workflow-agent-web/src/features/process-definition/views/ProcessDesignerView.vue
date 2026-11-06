@@ -12,7 +12,7 @@ import {
 } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Copy, Download, FileUp, MoreHorizontal, Plus, Save, Trash2 } from '@lucide/vue'
+import { ArrowLeft, Download, FileUp, MoreHorizontal, Plus, Save, Trash2 } from '@lucide/vue'
 import BpmnModeler from 'bpmn-js/lib/Modeler'
 import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
@@ -35,6 +35,13 @@ import {
   type ServiceOutputRow,
 } from '@/features/service-registry/serviceCallMapping'
 import { showsApprovalMode } from '../serviceTaskPanel'
+import ScriptTaskConfigPanel from '../components/ScriptTaskConfigPanel.vue'
+import {
+  fromInParameters,
+  scriptTaskWarnings,
+  toInParameters,
+  type ScriptInputRow,
+} from '../scriptTaskPanel'
 import type {
   ApprovalMode,
   BpmnElement,
@@ -47,14 +54,19 @@ import type {
   ModdleElement,
   Modeling,
 } from '@/bpmn/modeler-types'
-import { assignmentRuleApi } from '@/features/assignment-rule'
 import { agentApi, type PublishedAgentVersion } from '@/features/agent'
-import { createBlankBpmn, isAgentTaskElement, validateBpmnXml, withoutMisplacedAgentTasks } from '@/utils/bpmn'
+import {
+  createBlankBpmn,
+  isAgentTaskElement,
+  validateBpmnXml,
+  withoutMisplacedAgentTasks,
+} from '@/utils/bpmn'
 import { confirmAction } from '@/utils/confirmation'
 import { formatDateTime, formatVersion } from '@/utils/format'
 import { definitionApi } from '../api'
 import { normalizeProcessIdentity } from '../domain'
-import type { ActiveProcessVersion, ProcessDefinition } from '../types'
+import { designerStatus, isDraftConflict } from '../draftState'
+import type { ProcessDefinition, ProcessDraft } from '../types'
 
 const DEFAULT_ASSIGNEE = '${assigneeService.getAssignee(execution)}'
 const DEFAULT_CANDIDATE_USERS = '${assigneeService.getCandidates(execution)}'
@@ -80,12 +92,13 @@ const fileInput = ref<HTMLInputElement>()
 const modeler = shallowRef<BpmnModelerInstance>()
 let canvasResizeObserver: ResizeObserver | undefined
 const versions = ref<ProcessDefinition[]>([])
-const activeVersion = ref<ActiveProcessVersion>()
-const selectedVersion = ref<number>()
+/** Server copy of the draft. Undefined for a new process that has never been saved. */
+const draft = ref<ProcessDraft>()
+/** Undefined while editing the draft; a version number while viewing that version read-only. */
+const viewingVersion = ref<number>()
 const loading = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
-const inheriting = ref(false)
 const dirty = ref(false)
 const importing = ref(false)
 const newProcessVisible = ref(false)
@@ -103,6 +116,9 @@ const serviceCallKey = ref('')
 const serviceOperationKey = ref('')
 const serviceInputRows = ref<ServiceInputRow[]>([])
 const serviceOutputRows = ref<ServiceOutputRow[]>([])
+const scriptText = ref('')
+const scriptInputRows = ref<ScriptInputRow[]>([])
+const scriptResultVariable = ref('')
 const publishedServices = ref<ServiceView[]>([])
 let serviceLoadSequence = 0
 const agentInputMapping = ref('{}')
@@ -129,16 +145,20 @@ const selectedType = computed(
 )
 const isAgentTask = computed(() => isAgentTaskElement(selectedBusinessObject.value))
 const isServiceTask = computed(() => selectedType.value === 'bpmn:ServiceTask')
+const isScriptTask = computed(() => selectedType.value === 'bpmn:ScriptTask')
 const isTask = computed(() =>
-  ['bpmn:Task', 'bpmn:UserTask', 'bpmn:ReceiveTask', 'bpmn:ServiceTask'].includes(
-    selectedType.value,
-  ),
+  [
+    'bpmn:Task',
+    'bpmn:UserTask',
+    'bpmn:ReceiveTask',
+    'bpmn:ServiceTask',
+    'bpmn:ScriptTask',
+  ].includes(selectedType.value),
 )
 const isSequenceFlow = computed(() => selectedType.value === 'bpmn:SequenceFlow')
-const isSelectedActive = computed(() => activeVersion.value?.version === selectedVersion.value)
-const selectedDefinition = computed(() =>
-  versions.value.find((item) => item.version === selectedVersion.value),
-)
+const status = computed(() => (draft.value ? designerStatus(draft.value) : undefined))
+const readOnly = computed(() => viewingVersion.value !== undefined)
+const DRAFT_OPTION = 0
 const elementTypeLabel = computed(() => getElementTypeLabel(selectedType.value))
 const selectedSource = computed(() => selectedBusinessObject.value?.sourceRef?.id || '')
 const selectedTarget = computed(() => selectedBusinessObject.value?.targetRef?.id || '')
@@ -194,6 +214,7 @@ function getElementTypeLabel(type: string) {
     'bpmn:UserTask': 'Nhiệm vụ',
     'bpmn:Task': 'Việc thường',
     'bpmn:ServiceTask': 'Gọi dịch vụ',
+    'bpmn:ScriptTask': 'Chạy script',
     'bpmn:ExclusiveGateway': 'Rẽ một nhánh',
     'bpmn:ParallelGateway': 'Chạy song song',
     'bpmn:InclusiveGateway': 'Rẽ nhiều nhánh',
@@ -250,6 +271,20 @@ function resetSelection(element?: BpmnElement) {
     serviceInputRows.value = []
     serviceOutputRows.value = []
   }
+  const isScript = object?.$type === 'bpmn:ScriptTask'
+  scriptText.value = isScript ? String(object?.script || '') : ''
+  scriptResultVariable.value = isScript ? String(object?.resultVariable || '') : ''
+  scriptInputRows.value = isScript
+    ? fromInParameters(
+        (object?.extensionElements?.values || [])
+          .filter((item) => item.$type === 'flowable:In')
+          .map((item) => ({
+            target: item.target,
+            source: item.source,
+            sourceExpression: item.sourceExpression,
+          })),
+      )
+    : []
   agentVersionId.value = String(agentBinding?.agentVersionId || '')
   void ensureSelectedAgentVersionLoaded()
   agentInputMapping.value = String(agentBinding?.inputMapping || '{}')
@@ -411,6 +446,39 @@ function applyServiceCall() {
     delegateExpression: '${serviceRegistryDelegate}',
     // Callback operations stay on this task until the webhook arrives. Sync calls leave immediately.
     triggerable: true,
+  })
+  dirty.value = true
+}
+
+function applyScriptTask(warn = false) {
+  const element = selectedElement.value
+  const object = selectedBusinessObject.value
+  const modeling = service<Modeling>('modeling')
+  const moddle = service<Moddle>('moddle')
+  if (!element || !object || object.$type !== 'bpmn:ScriptTask' || !modeling || !moddle) return
+  if (warn) {
+    const warnings = scriptTaskWarnings(
+      scriptText.value,
+      scriptInputRows.value,
+      scriptResultVariable.value,
+    )
+    if (warnings.length > 0) ElMessage.warning(warnings.join('; '))
+  }
+  const kept = (object.extensionElements?.values || []).filter(
+    (item) => item.$type !== 'flowable:In',
+  )
+  const inputs = toInParameters(scriptInputRows.value).map((parameter) =>
+    moddle.create('flowable:In', { ...parameter }),
+  )
+  const values = [...kept, ...inputs]
+  modeling.updateModdleProperties(element, object, {
+    scriptFormat: 'javascript',
+    script: scriptText.value,
+    resultVariable: scriptResultVariable.value.trim() || undefined,
+    autoStoreVariables: undefined,
+    extensionElements: values.length
+      ? moddle.create('bpmn:ExtensionElements', { values })
+      : undefined,
   })
   dirty.value = true
 }
@@ -810,17 +878,29 @@ async function importXml(xml: string, markDirty: boolean) {
   window.setTimeout(() => (importing.value = false), 0)
 }
 
-async function loadVersions(key: string, preferredVersion?: number) {
+async function confirmDiscardEdits(title: string) {
+  if (!dirty.value) return true
+  return confirmAction('Bạn chưa lưu nháp. Tiếp tục sẽ mất những thay đổi này.', title, {
+    confirmButtonText: 'Tiếp tục',
+    cancelButtonText: 'Hủy',
+    type: 'warning',
+  })
+}
+
+/** Opens the draft for editing. Versions are listed for read-only viewing. */
+async function loadProcess(key: string) {
   loading.value = true
   try {
-    versions.value = (await definitionApi.listVersions(key)).sort((a, b) => b.version - a.version)
-    if (versions.value.length === 0) return
-    try {
-      activeVersion.value = await definitionApi.active(key)
-    } catch {
-      activeVersion.value = undefined
-    }
-    await openVersion(preferredVersion || versions.value[0]!.version)
+    const [loadedDraft, loadedVersions] = await Promise.all([
+      definitionApi.draft(key),
+      definitionApi.listVersions(key).catch(() => [] as ProcessDefinition[]),
+    ])
+    draft.value = loadedDraft
+    versions.value = loadedVersions.sort((a, b) => b.version - a.version)
+    viewingVersion.value = undefined
+    processForm.key = loadedDraft.processDefinitionKey
+    processForm.name = loadedDraft.name
+    await importXml(loadedDraft.bpmnXml, false)
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
   } finally {
@@ -828,21 +908,16 @@ async function loadVersions(key: string, preferredVersion?: number) {
   }
 }
 
-async function openVersion(version: number) {
-  if (dirty.value) {
-    const confirmed = await confirmAction('Bạn chưa lưu. Đổi phiên bản sẽ mất những thay đổi này.', 'Đổi phiên bản', {
-      confirmButtonText: 'Đổi phiên bản',
-      cancelButtonText: 'Hủy',
-      type: 'warning',
-    })
-    if (!confirmed) return
+async function viewVersion(option: number) {
+  if (!(await confirmDiscardEdits('Đổi phiên bản'))) return
+  if (option === DRAFT_OPTION) {
+    await loadProcess(processForm.key)
+    return
   }
   loading.value = true
   try {
-    const detail = await definitionApi.detail(processForm.key, version)
-    selectedVersion.value = detail.version
-    processForm.key = detail.processDefinitionKey
-    processForm.name = detail.processDefinitionName
+    const detail = await definitionApi.detail(processForm.key, option)
+    viewingVersion.value = detail.version
     await importXml(detail.bpmnXml, false)
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
@@ -851,82 +926,173 @@ async function openVersion(version: number) {
   }
 }
 
-async function saveVersion() {
+async function exportDraftXml() {
+  if (!modeler.value) return undefined
+  applyServiceCall()
+  applyScriptTask(true)
+  syncProcessMetadata()
+  stripMisplacedAgentBindings()
+  normalizeAgentTaskBindings()
+  sanitizeModel()
+  const exported = await modeler.value.saveXML({ format: true })
+  const xml = withoutMisplacedAgentTasks(exported.xml || '')
+  validateBpmnXml(xml)
+  return xml
+}
+
+/** Saves the draft only. Nothing reaches the engine until it is published. */
+async function saveDraft() {
+  if (readOnly.value) return false
   if (!processForm.key.trim() || !processForm.name.trim() || !modeler.value) {
     ElMessage.error('Hãy nhập mã và tên quy trình')
-    return
+    return false
   }
   saving.value = true
+  const key = processForm.key.trim()
+  const name = processForm.name.trim()
   try {
-    applyServiceCall()
-    syncProcessMetadata()
-    stripMisplacedAgentBindings()
-    normalizeAgentTaskBindings()
-    sanitizeModel()
-    const exported = await modeler.value.saveXML({ format: true })
-    const xml = withoutMisplacedAgentTasks(exported.xml || '')
-    validateBpmnXml(xml)
-    const result = await definitionApi.deploy({
-      processDefinitionKey: processForm.key.trim(),
-      processDefinitionName: processForm.name.trim(),
-      bpmnXml: xml,
-    })
+    const xml = await exportDraftXml()
+    if (!xml) return false
+    try {
+      draft.value = draft.value
+        ? await definitionApi.saveDraft(key, { name, bpmnXml: xml, revision: draft.value.revision })
+        : await definitionApi.createDraft({ processDefinitionKey: key, name, bpmnXml: xml })
+    } catch (error) {
+      if (!isDraftConflict(error)) throw error
+      const overwrite = await confirmAction(
+        'Bản nháp vừa được người khác lưu. Ghi đè bằng bản của bạn, hay tải lại bản mới nhất?',
+        'Bản nháp đã thay đổi',
+        { confirmButtonText: 'Ghi đè', cancelButtonText: 'Tải lại', type: 'warning' },
+      )
+      if (!overwrite) {
+        dirty.value = false
+        await loadProcess(key)
+        return false
+      }
+      const latest = await definitionApi.draft(key)
+      draft.value = await definitionApi.saveDraft(key, {
+        name,
+        bpmnXml: xml,
+        revision: latest.revision,
+      })
+    }
     dirty.value = false
-    selectedVersion.value = result.version
-    await loadVersions(result.processDefinitionKey, result.version)
-    ElMessage.success(`Đã lưu thành ${formatVersion(result.version)}`)
+    ElMessage.success('Đã lưu bản nháp')
+    return true
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
+    return false
   } finally {
     saving.value = false
   }
 }
 
-async function publishVersion() {
-  if (!selectedVersion.value) return
+async function publish() {
+  if (dirty.value && !(await saveDraft())) return
+  if (!draft.value) {
+    ElMessage.error('Hãy lưu nháp trước khi phát hành')
+    return
+  }
   publishing.value = true
   try {
-    activeVersion.value = await definitionApi.activate({
-      processDefinitionKey: processForm.key,
-      version: selectedVersion.value,
-    })
-    ElMessage.success(`Đã phát hành ${formatVersion(selectedVersion.value)}`)
+    const result = await definitionApi.publish(
+      draft.value.processDefinitionKey,
+      draft.value.revision,
+    )
+    const copied = result.rules ? `, chép ${result.rules.copiedCount} luật phân công` : ''
+    ElMessage.success(`Đã phát hành ${formatVersion(result.version)}${copied}`)
+    if (result.newUserTaskIds.length) {
+      ElMessage.warning(`Bước mới cần kiểm tra phân công: ${result.newUserTaskIds.join(', ')}`)
+    }
+    await loadProcess(draft.value.processDefinitionKey)
   } catch (error) {
-    ElMessage.error(getErrorMessage(error))
+    ElMessage.error(
+      isDraftConflict(error)
+        ? 'Bản nháp đã đổi. Hãy tải lại trước khi phát hành.'
+        : getErrorMessage(error),
+    )
   } finally {
     publishing.value = false
   }
 }
 
-async function inheritRules() {
-  const definition = selectedDefinition.value
-  if (!definition) return
-  const confirmed = await confirmAction(
-    'Lấy quy tắc phân công từ phiên bản gần nhất còn cấu hình?',
-    'Lấy quy tắc cũ',
-    {
-      confirmButtonText: 'Kế thừa',
-      cancelButtonText: 'Hủy',
-    },
-  )
-  if (!confirmed) return
-  inheriting.value = true
+async function runAndReload(action: () => Promise<unknown>, message: string) {
   try {
-    const result = await assignmentRuleApi.inherit(definition.processDefinitionId)
-    const skipped = result.skippedReasons.length
-      ? `; bỏ qua: ${result.skippedReasons.join('; ')}`
-      : ''
-    ElMessage.success(`Đã lấy ${result.copiedCount} quy tắc, bỏ qua ${result.skippedCount}${skipped}`)
+    await action()
+    ElMessage.success(message)
+    await loadProcess(processForm.key)
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
-  } finally {
-    inheriting.value = false
   }
 }
 
+async function suspendProcess() {
+  const confirmed = await confirmAction(
+    'Ngừng phát hành? Không ai bắt đầu mới được. Việc đang chạy vẫn tiếp tục.',
+    'Ngừng phát hành',
+    { confirmButtonText: 'Ngừng', cancelButtonText: 'Hủy', type: 'warning' },
+  )
+  if (!confirmed) return
+  await runAndReload(() => definitionApi.suspend(processForm.key), 'Đã ngừng phát hành')
+}
+
+async function resumeProcess() {
+  await runAndReload(() => definitionApi.resume(processForm.key), 'Đã phát hành lại')
+}
+
+async function discardDraftChanges() {
+  const current = draft.value
+  if (!current) return
+  const confirmed = await confirmAction(
+    'Bỏ mọi thay đổi chưa phát hành và quay về bản đang chạy?',
+    'Huỷ thay đổi nháp',
+    { confirmButtonText: 'Bỏ thay đổi', cancelButtonText: 'Hủy', type: 'warning' },
+  )
+  if (!confirmed) return
+  dirty.value = false
+  await runAndReload(
+    () => definitionApi.discardDraft(processForm.key, current.revision),
+    'Đã khôi phục bản đang chạy',
+  )
+}
+
+async function openVersionInDraft() {
+  const version = viewingVersion.value
+  const current = draft.value
+  if (version === undefined || !current) return
+  const confirmed = await confirmAction(
+    `Thay bản nháp hiện tại bằng nội dung của ${formatVersion(version)}?`,
+    'Mở vào bản nháp',
+    { confirmButtonText: 'Mở vào bản nháp', cancelButtonText: 'Hủy', type: 'warning' },
+  )
+  if (!confirmed) return
+  dirty.value = false
+  await runAndReload(
+    () =>
+      definitionApi.loadVersionIntoDraft(processForm.key, { version, revision: current.revision }),
+    `Đã mở ${formatVersion(version)} vào bản nháp`,
+  )
+}
+
+async function rollbackToVersion() {
+  const version = viewingVersion.value
+  if (version === undefined) return
+  const confirmed = await confirmAction(
+    `Phát hành lại nội dung của ${formatVersion(version)} thành phiên bản mới? Bản nháp không đổi.`,
+    'Quay về phiên bản này',
+    { confirmButtonText: 'Quay về', cancelButtonText: 'Hủy', type: 'warning' },
+  )
+  if (!confirmed) return
+  dirty.value = false
+  await runAndReload(
+    () => definitionApi.rollback(processForm.key, version),
+    `Đã quay về nội dung ${formatVersion(version)}`,
+  )
+}
+
 async function deleteVersion() {
-  if (!selectedVersion.value) return
-  const version = selectedVersion.value
+  const version = viewingVersion.value
+  if (version === undefined) return
   const confirmed = await confirmAction(
     `Xóa ${processForm.key} ${formatVersion(version)}?`,
     'Xóa phiên bản',
@@ -937,20 +1103,11 @@ async function deleteVersion() {
     },
   )
   if (!confirmed) return
-  try {
-    await definitionApi.deleteVersion(processForm.key, version)
-    ElMessage.success(`${formatVersion(version)} đã được xóa`)
-    const remainingVersions = await definitionApi.listVersions(processForm.key)
-    if (remainingVersions.length === 0) {
-      dirty.value = false
-      await router.push('/process-definitions')
-      return
-    }
-    versions.value = remainingVersions.sort((a, b) => b.version - a.version)
-    await openVersion(versions.value[0]!.version)
-  } catch (error) {
-    ElMessage.error(getErrorMessage(error))
-  }
+  dirty.value = false
+  await runAndReload(
+    () => definitionApi.deleteVersion(processForm.key, version),
+    `${formatVersion(version)} đã được xóa`,
+  )
 }
 
 async function deleteDefinition() {
@@ -1003,8 +1160,8 @@ async function createNewProcess() {
     processForm.key = key
     processForm.name = name
     versions.value = []
-    activeVersion.value = undefined
-    selectedVersion.value = undefined
+    draft.value = undefined
+    viewingVersion.value = undefined
     await importXml(createBlankBpmn(key, name), true)
     newProcessVisible.value = false
     await router.replace({ name: 'process-designer', query: { key, name } })
@@ -1208,8 +1365,9 @@ async function download() {
 type DesignerToolbarCommand = 'import' | 'export' | 'new-process'
 
 function handleToolbarCommand(command: DesignerToolbarCommand) {
-  if (command === 'import') fileInput.value?.click()
-  else if (command === 'export') void download()
+  if (command === 'import') {
+    if (!readOnly.value) fileInput.value?.click()
+  } else if (command === 'export') void download()
   else void openNewProcessDialog()
 }
 
@@ -1262,7 +1420,7 @@ onMounted(async () => {
     }
     await importXml(xml, true)
   } else if (key) {
-    await loadVersions(key)
+    await loadProcess(key)
   } else {
     await importXml(createBlankBpmn('new_process', 'Quy trình mới'), true)
     processForm.key = 'new_process'
@@ -1276,7 +1434,7 @@ onBeforeUnmount(() => {
   modeler.value?.destroy()
 })
 
-watch(selectedVersion, () => resetSelection())
+watch(viewingVersion, () => resetSelection())
 </script>
 
 <template>
@@ -1301,7 +1459,9 @@ watch(selectedVersion, () => resetSelection())
       </div>
       <div class="designer-toolbar-actions">
         <div class="designer-toolbar-secondary">
-          <el-button @click="fileInput?.click()"><FileUp :size="16" />Nhập</el-button>
+          <el-button :disabled="readOnly" @click="fileInput?.click()">
+            <FileUp :size="16" />Nhập
+          </el-button>
           <el-button @click="download"><Download :size="16" />Xuất</el-button>
           <span class="toolbar-action-divider" />
           <el-button @click="openNewProcessDialog"><Plus :size="16" />Tạo sơ đồ mới</el-button>
@@ -1325,11 +1485,12 @@ watch(selectedVersion, () => resetSelection())
         <el-button
           class="designer-save-button"
           type="primary"
-          aria-label="Lưu phiên bản mới"
+          aria-label="Lưu nháp"
           :loading="saving"
-          @click="saveVersion"
+          :disabled="readOnly"
+          @click="saveDraft"
         >
-          <Save :size="16" /><span class="designer-action-label">Lưu phiên bản mới</span>
+          <Save :size="16" /><span class="designer-action-label">Lưu nháp</span>
         </el-button>
       </div>
       <input
@@ -1341,7 +1502,7 @@ watch(selectedVersion, () => resetSelection())
       />
     </header>
 
-    <div class="designer-workspace">
+    <div class="designer-workspace" :class="{ 'is-read-only': readOnly }">
       <div ref="canvasElement" class="bpmn-canvas" />
       <aside class="properties-panel">
         <section class="inspector-card">
@@ -1365,22 +1526,22 @@ watch(selectedVersion, () => resetSelection())
           <div class="inspector-heading">
             <div>
               <h2>Quản lý phiên bản</h2>
-              <p>Lưu tạo phiên bản mới. Phát hành để mọi người bắt đầu được.</p>
+              <p>
+                Lưu nháp không ảnh hưởng tới việc đang chạy. Phát hành để mọi người dùng bản mới.
+              </p>
             </div>
           </div>
           <div class="version-status-row">
-            <span>Đang dùng</span>
-            <StatusBadge
-              :status="activeVersion ? 'PUBLISHED' : 'PENDING'"
-              :label="activeVersion ? formatVersion(activeVersion.version) : 'Chưa phát hành'"
-            />
+            <span>Trạng thái</span>
+            <StatusBadge :status="status?.status ?? 'DRAFT'" :label="status?.label ?? 'Chưa lưu'" />
           </div>
           <el-select
-            :model-value="selectedVersion"
-            placeholder="Chưa có phiên bản"
-            :disabled="versions.length === 0 || loading"
-            @change="openVersion"
+            :model-value="viewingVersion ?? DRAFT_OPTION"
+            aria-label="Chọn bản để xem"
+            :disabled="loading || !draft"
+            @change="viewVersion"
           >
+            <el-option label="Bản nháp (đang sửa)" :value="DRAFT_OPTION" />
             <el-option
               v-for="item in versions"
               :key="item.version"
@@ -1388,24 +1549,47 @@ watch(selectedVersion, () => resetSelection())
               :value="item.version"
             />
           </el-select>
-          <el-button
-            type="primary"
-            :disabled="!selectedVersion || isSelectedActive"
-            :loading="publishing"
-            @click="publishVersion"
-          >
-            {{ isSelectedActive ? 'Phiên bản này đang được dùng' : 'Phát hành phiên bản này' }}
-          </el-button>
-          <el-button :disabled="!selectedDefinition" :loading="inheriting" @click="inheritRules">
-            <Copy :size="15" />Kế thừa cấu hình
-          </el-button>
+          <template v-if="!readOnly">
+            <el-button
+              type="primary"
+              :disabled="!dirty && !status?.canPublish"
+              :loading="publishing"
+              @click="publish"
+            >
+              Phát hành
+            </el-button>
+            <el-button v-if="status?.canSuspend" @click="suspendProcess">Ngừng phát hành</el-button>
+            <el-button v-if="status?.canResume" @click="resumeProcess">Phát hành lại</el-button>
+            <el-button
+              v-if="draft?.latestVersion && draft.hasUnpublishedChanges"
+              @click="discardDraftChanges"
+            >
+              Huỷ thay đổi nháp
+            </el-button>
+          </template>
+          <template v-else>
+            <el-alert
+              type="info"
+              :closable="false"
+              :title="`Đang xem ${formatVersion(viewingVersion!)} (chỉ xem)`"
+            />
+            <el-button @click="openVersionInDraft">Mở vào bản nháp</el-button>
+            <el-button v-if="viewingVersion !== draft?.latestVersion" @click="rollbackToVersion">
+              Quay về phiên bản này
+            </el-button>
+          </template>
           <div class="danger-zone">
             <span>Xóa</span>
-            <el-button type="danger" plain :disabled="!selectedVersion" @click="deleteVersion">
-              <Trash2 :size="15" />Xóa phiên bản hiện tại
+            <el-button
+              type="danger"
+              plain
+              :disabled="!readOnly || viewingVersion === draft?.latestVersion"
+              @click="deleteVersion"
+            >
+              <Trash2 :size="15" />Xóa phiên bản đang xem
             </el-button>
-            <el-button type="danger" plain :disabled="!versions.length" @click="deleteDefinition">
-              <Trash2 :size="15" />Xóa sơ đồ
+            <el-button type="danger" plain :disabled="!draft" @click="deleteDefinition">
+              <Trash2 :size="15" />Xóa quy trình
             </el-button>
           </div>
         </section>
@@ -1487,10 +1671,21 @@ watch(selectedVersion, () => resetSelection())
               @apply="applyServiceCall"
             />
 
+            <ScriptTaskConfigPanel
+              v-if="isScriptTask"
+              v-model:script="scriptText"
+              v-model:input-rows="scriptInputRows"
+              v-model:result-variable="scriptResultVariable"
+              @apply="applyScriptTask()"
+            />
+
             <div v-if="!isAgentTask && (isTask || isSequenceFlow)" class="property-block">
               <strong>Luật chuyển</strong>
               <el-form label-position="top" size="small">
-                <el-form-item v-if="showsApprovalMode(isTask, isServiceTask)" label="Loại bước">
+                <el-form-item
+                  v-if="showsApprovalMode(isTask, isServiceTask || isScriptTask)"
+                  label="Loại bước"
+                >
                   <el-select
                     v-model="approvalMode"
                     placeholder="Hãy chọn loại bước"
@@ -1564,9 +1759,12 @@ watch(selectedVersion, () => resetSelection())
               </div>
               <div class="listener-table">
                 <div class="listener-table-head">
-                  <span>Số thứ tự</span><span>Loại sự kiện</span><span>Bean bộ lắng nghe</span><span>Thao tác</span>
+                  <span>Số thứ tự</span><span>Loại sự kiện</span><span>Bean bộ lắng nghe</span
+                  ><span>Thao tác</span>
                 </div>
-                <div v-if="listenerRows.length === 0" class="listener-empty-row">Chưa có dữ liệu</div>
+                <div v-if="listenerRows.length === 0" class="listener-empty-row">
+                  Chưa có dữ liệu
+                </div>
                 <template v-else>
                   <div
                     v-for="(row, index) in listenerRows"
@@ -1604,7 +1802,11 @@ watch(selectedVersion, () => resetSelection())
           />
         </el-form-item>
         <el-form-item label="Tên định nghĩa quy trình" required>
-          <el-input v-model="newProcessForm.name" maxlength="128" placeholder="Quy trình phê duyệt đơn" />
+          <el-input
+            v-model="newProcessForm.name"
+            maxlength="128"
+            placeholder="Quy trình phê duyệt đơn"
+          />
         </el-form-item>
       </el-form>
       <template #footer>

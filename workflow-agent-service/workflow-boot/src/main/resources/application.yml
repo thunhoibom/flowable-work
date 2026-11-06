@@ -56,6 +56,16 @@ workflow:
       master-key-base64: ${WORKFLOW_SERVICE_SECRET_KEY_BASE64:${WORKFLOW_MASTER_KEY_BASE64:}}
   services:
     environment: ${WORKFLOW_SERVICES_ENVIRONMENT:default}
+  definition:
+    max-bpmn-bytes: ${WORKFLOW_DEFINITION_MAX_BPMN_BYTES:2097152}
+  script-task:
+    enabled: ${WORKFLOW_SCRIPT_TASK_ENABLED:false}
+    max-script-length: ${WORKFLOW_SCRIPT_TASK_MAX_SCRIPT_LENGTH:20000}
+    max-inputs: ${WORKFLOW_SCRIPT_TASK_MAX_INPUTS:32}
+    max-execution-millis: ${WORKFLOW_SCRIPT_TASK_MAX_EXECUTION_MILLIS:2000}
+    max-memory-bytes: ${WORKFLOW_SCRIPT_TASK_MAX_MEMORY_BYTES:8388608}
+    max-stack-depth: ${WORKFLOW_SCRIPT_TASK_MAX_STACK_DEPTH:64}
+    instruction-check-interval: ${WORKFLOW_SCRIPT_TASK_INSTRUCTION_CHECK_INTERVAL:100}
   runtime:
     environment: ${WORKFLOW_ENV:production}
   lock:

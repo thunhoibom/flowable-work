@@ -61,8 +61,12 @@ const definitionsQuery = useQuery({
 
 const records = computed(() => definitionsQuery.data.value?.records ?? [])
 const total = computed(() => definitionsQuery.data.value?.total ?? 0)
-const publishedCount = computed(() => records.value.filter((item) => item.activeVersion).length)
-const draftCount = computed(() => Math.max(records.value.length - publishedCount.value, 0))
+const publishedCount = computed(
+  () => records.value.filter((item) => item.publishStatus === 'published').length,
+)
+const draftCount = computed(
+  () => records.value.filter((item) => item.publishStatus === 'draft_only').length,
+)
 
 const deleteMutation = useMutation({
   mutationFn: definitionApi.deleteAll,
@@ -171,7 +175,11 @@ function handleStarted(result: StartProcessResult) {
           />
         </el-form-item>
         <el-form-item label="Tên quy trình">
-          <el-input v-model="query.processDefinitionName" clearable placeholder="Nhập tên quy trình" />
+          <el-input
+            v-model="query.processDefinitionName"
+            clearable
+            placeholder="Nhập tên quy trình"
+          />
         </el-form-item>
         <el-form-item label="Trạng thái">
           <el-select
@@ -180,8 +188,9 @@ function handleStarted(result: StartProcessResult) {
             aria-label="Trạng thái"
           >
             <el-option label="Tất cả" value="all" />
-            <el-option label="Đã phát hành" value="published" />
-            <el-option label="Bản nháp" value="unpublished" />
+            <el-option label="Đang chạy" value="published" />
+            <el-option label="Đã ngừng" value="suspended" />
+            <el-option label="Chỉ bản nháp" value="draft_only" />
           </el-select>
         </el-form-item>
         <el-form-item class="filter-form__actions">
@@ -224,11 +233,23 @@ function handleStarted(result: StartProcessResult) {
             <TableTagCell>
               <el-tag
                 class="version-tag"
-                :type="row.activeVersion ? 'success' : 'info'"
+                :type="
+                  row.publishStatus === 'published'
+                    ? 'success'
+                    : row.publishStatus === 'suspended'
+                      ? 'warning'
+                      : 'info'
+                "
                 effect="light"
                 round
               >
-                {{ row.activeVersion ? formatVersion(row.activeVersion) : 'Bản nháp' }}
+                {{
+                  row.publishStatus === 'published'
+                    ? formatVersion(row.activeVersion)
+                    : row.publishStatus === 'suspended'
+                      ? 'Đã ngừng'
+                      : 'Bản nháp'
+                }}
               </el-tag>
             </TableTagCell>
           </template>
@@ -236,8 +257,22 @@ function handleStarted(result: StartProcessResult) {
         <el-table-column label="Mới nhất" width="130" header-align="center">
           <template #default="{ row }">
             <TableTagCell>
-              <el-tag class="version-tag" type="warning" effect="light" round>
+              <el-tag
+                v-if="row.latestVersion"
+                class="version-tag"
+                type="warning"
+                effect="light"
+                round
+              >
                 {{ formatVersion(row.latestVersion) }}
+              </el-tag>
+              <span v-else>—</span>
+              <el-tag
+                v-if="row.hasUnpublishedChanges && row.latestVersion"
+                size="small"
+                type="warning"
+              >
+                Có thay đổi
               </el-tag>
             </TableTagCell>
           </template>
@@ -245,7 +280,11 @@ function handleStarted(result: StartProcessResult) {
         <el-table-column label="Cập nhật lúc" width="180">
           <template #default="{ row }">{{ formatDateTime(row.latestDeployTime) }}</template>
         </el-table-column>
-        <el-table-column v-if="canWriteDefinitions || canOperateInstances" label="Thao tác" width="300">
+        <el-table-column
+          v-if="canWriteDefinitions || canOperateInstances"
+          label="Thao tác"
+          width="300"
+        >
           <template #default="{ row }">
             <div class="row-actions">
               <el-button

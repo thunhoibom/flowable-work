@@ -7,6 +7,7 @@ public enum ErrorCode {
     FORBIDDEN("FORBIDDEN", "Forbidden request"),
     NOT_FOUND("NOT_FOUND", "Resource not found"),
     CONFLICT("CONFLICT", "Resource conflict"),
+    DRAFT_REVISION_CONFLICT("DRAFT_REVISION_CONFLICT", "Bản nháp đã được người khác sửa"),
     RATE_LIMITED("RATE_LIMITED", "Too many requests"),
     EIM_UNAVAILABLE("EIM_UNAVAILABLE", "Không tải được menu từ EIM"),
     WORKFLOW_ERROR("WORKFLOW_ERROR", "Workflow operation failed"),

@@ -1,4 +1,4 @@
-import { apiClient, TENANT_HEADER } from '@/api/http'
+import { ApiError, apiClient, refreshSession, TENANT_HEADER } from '@/api/http'
 import type { AuthSession, AuthUser, LoginRequest, SitemapEntry, TenantOption } from './types'
 
 export function login(request: LoginRequest) {
@@ -25,9 +25,21 @@ export function getTenants() {
   return apiClient.get<TenantOption[]>('/auth/tenants')
 }
 
-/** The user's menu, managed in EIM (like rsa-core-service `/auth/sitemaps`). */
-export function getSitemap() {
-  return apiClient.get<SitemapEntry[]>('/auth/sitemaps')
+export const EIM_UNAVAILABLE = 'EIM_UNAVAILABLE'
+
+/**
+ * The user's menu, managed in EIM (like rsa-core-service `/auth/sitemaps`). EIM can reject a
+ * session it no longer knows while the access token itself is still valid (e.g. after the
+ * network was down), so an EIM failure renews the SSO session once and asks again.
+ */
+export async function getSitemap() {
+  try {
+    return await apiClient.get<SitemapEntry[]>('/auth/sitemaps')
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== EIM_UNAVAILABLE) throw error
+    if (!(await refreshSession())) throw error
+    return apiClient.get<SitemapEntry[]>('/auth/sitemaps')
+  }
 }
 
 export function logout() {

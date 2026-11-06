@@ -60,6 +60,8 @@ const definitionsQuery = useQuery({
   enabled: computed(() => props.modelValue),
 })
 
+// `/definitions` returns the latest version of each key, and `active` means "latest and not
+// suspended", i.e. published. Drafts never reach the engine, so no extra version filter is needed.
 const activeDefinitions = computed(() => {
   const definitions = (definitionsQuery.data.value ?? []).filter((item) => item.active)
   const byKey = new Map<string, ProcessDefinition>()
@@ -197,9 +199,11 @@ function scheduleRequirementsPreview(resetInteraction: boolean) {
   previewGeneration += 1
   requirementsLoaded.value = false
   preparedVariables.value = undefined
-  participantRequirements.value = []
-  participantAssignments.value = []
+  // Editing data keeps the current steps and picks on screen until the new preview
+  // arrives; onSuccess then drops picks for steps that no longer need a person.
   if (resetInteraction) {
+    participantRequirements.value = []
+    participantAssignments.value = []
     interactionFields.value = []
     interactionAgentActivityIds.value = []
     interactionValues.value = {}
@@ -386,7 +390,12 @@ function variablePlaceholder(type: ProcessVariableType) {
         <div v-if="!variableRows.length" class="variable-empty">Chưa thêm dữ liệu</div>
       </section>
       <div
-        v-if="selectedDefinition && requirementsMutation.isPending.value && !requirementsLoaded"
+        v-if="
+          selectedDefinition &&
+          requirementsMutation.isPending.value &&
+          !requirementsLoaded &&
+          !participantRequirements.length
+        "
         class="participant-status participant-status--loading"
       >
         Đang xem bước nào cần chọn người…

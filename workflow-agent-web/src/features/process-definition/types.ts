@@ -1,7 +1,8 @@
-export type PublishStatus = 'all' | 'published' | 'unpublished'
+export type PublishStatus = 'all' | 'published' | 'suspended' | 'draft_only'
 
 export interface ProcessDefinitionSummary {
-  processDefinitionId: string
+  /** Null for a process that only exists as a draft. */
+  processDefinitionId: string | null
   processDefinitionKey: string
   processDefinitionName: string
   latestVersion: number
@@ -11,8 +12,9 @@ export interface ProcessDefinitionSummary {
   activeProcessDefinitionId?: string
   activeDeploymentId?: string
   activeUpdateTime?: string
-  publishStatus: string
+  publishStatus: Exclude<PublishStatus, 'all'>
   tenantId: string
+  hasUnpublishedChanges: boolean
 }
 
 export interface ProcessDefinition {
@@ -42,6 +44,38 @@ export interface DeployProcessResult {
   processDefinitionKey: string
   processDefinitionName: string
   version: number
+}
+
+/** The editable copy. `revision === 0` means no draft row yet; the XML is the latest version. */
+export interface ProcessDraft {
+  processDefinitionKey: string
+  name: string
+  bpmnXml: string
+  revision: number
+  updatedBy?: string
+  updatedAt?: string
+  latestVersion?: number
+  suspended: boolean
+  hasUnpublishedChanges: boolean
+}
+
+export interface AssignmentRuleCopySummary {
+  copiedCount: number
+  skippedCount: number
+  skippedReasons: string[]
+}
+
+export interface PublishProcessResult extends DeployProcessResult {
+  rules?: AssignmentRuleCopySummary | null
+  newUserTaskIds: string[]
+}
+
+export interface ProcessRelease {
+  version: number
+  action: 'PUBLISH' | 'ROLLBACK' | 'SUSPEND' | 'RESUME' | 'MIGRATED'
+  sourceVersion?: number
+  performedBy: string
+  performedAt: string
 }
 
 export interface DefinitionPageQuery {

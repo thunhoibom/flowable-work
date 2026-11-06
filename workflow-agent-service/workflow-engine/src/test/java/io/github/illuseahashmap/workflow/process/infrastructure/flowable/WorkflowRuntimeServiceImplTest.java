@@ -13,7 +13,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.illuseahashmap.workflow.process.application.WorkflowDefinitionService;
 import io.github.illuseahashmap.workflow.process.application.WorkflowInteractionGuard;
 import io.github.illuseahashmap.workflow.process.application.WorkflowOperationAuditService;
-import io.github.illuseahashmap.workflow.process.application.dto.ActiveProcessVersionResult;
 import io.github.illuseahashmap.workflow.process.application.dto.RejectTaskRequest;
 import io.github.illuseahashmap.workflow.process.application.dto.StartProcessRequest;
 import io.github.illuseahashmap.workflow.process.infrastructure.lock.ProcessInstanceTransactionExecutor;
@@ -22,7 +21,6 @@ import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipal;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipalProvider;
 import io.github.illuseahashmap.workflow.shared.context.TenantContext;
 import io.github.illuseahashmap.workflow.shared.context.TenantProvider;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -102,10 +100,7 @@ class WorkflowRuntimeServiceImplTest {
                 "tenant-one",
                 Set.of("WF_PLATFORM_ADMIN"),
                 Set.of()));
-        when(definitionService.getActiveVersion("leave-approval")).thenReturn(
-                new ActiveProcessVersionResult(
-                        "tenant-1", "leave-approval", "leave-approval:1:100", 1, "admin",
-                        OffsetDateTime.now()));
+        when(definitionService.runningProcessDefinitionId("leave-approval")).thenReturn("leave-approval:1:100");
         when(participantCoordinator.prepareForStart(
                 "tenant-1", "leave-approval:1:100", Map.of(), List.of()))
                 .thenReturn(Map.of());

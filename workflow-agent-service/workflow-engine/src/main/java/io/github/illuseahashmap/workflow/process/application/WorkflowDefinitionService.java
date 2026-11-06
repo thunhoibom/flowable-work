@@ -15,6 +15,9 @@ public interface WorkflowDefinitionService {
 
     ActiveProcessVersionResult getActiveVersion(String processDefinitionKey);
 
+    /** The latest definition of the key. Throws NOT_FOUND when absent, CONFLICT when suspended. */
+    String runningProcessDefinitionId(String processDefinitionKey);
+
     boolean exists(String processDefinitionKey);
 
     List<ProcessDefinitionView> list(String processDefinitionKey);

@@ -136,6 +136,20 @@ public class AssignmentRuleServiceImpl implements AssignmentRuleService {
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
                         "No historical assignment rule version exists"));
+        return copy(tenantId, source, target);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AssignmentRuleInheritResult copyRules(String sourceProcessDefinitionId, String targetProcessDefinitionId) {
+        String tenantId = tenantProvider.current().tenantId();
+        return copy(tenantId, requireDefinition(tenantId, sourceProcessDefinitionId),
+                requireDefinition(tenantId, targetProcessDefinitionId));
+    }
+
+    private AssignmentRuleInheritResult copy(String tenantId,
+                                             ProcessDefinitionCatalog.DefinitionInfo source,
+                                             ProcessDefinitionCatalog.DefinitionInfo target) {
         int copied = 0;
         List<String> skippedReasons = new ArrayList<>();
         Set<String> configuredTaskKeys = ruleRepository.findByProcessDefinition(tenantId, target.id()).stream()

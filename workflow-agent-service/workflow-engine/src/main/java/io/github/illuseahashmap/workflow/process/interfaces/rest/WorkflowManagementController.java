@@ -1,6 +1,19 @@
 package io.github.illuseahashmap.workflow.process.interfaces.rest;
 
 import io.github.illuseahashmap.workflow.shared.response.ApiResponse;
+import io.github.illuseahashmap.workflow.process.application.DraftPublishMigrationService;
+import io.github.illuseahashmap.workflow.process.application.ProcessDraftService;
+import io.github.illuseahashmap.workflow.process.application.dto.DraftPublishMigrationResult;
+import io.github.illuseahashmap.workflow.process.application.ProcessPublishService;
+import io.github.illuseahashmap.workflow.process.application.dto.ProcessReleaseView;
+import io.github.illuseahashmap.workflow.process.application.dto.PublishProcessRequest;
+import io.github.illuseahashmap.workflow.process.application.dto.PublishProcessResult;
+import io.github.illuseahashmap.workflow.process.application.dto.RollbackProcessRequest;
+import io.github.illuseahashmap.workflow.process.application.dto.CreateProcessDraftRequest;
+import io.github.illuseahashmap.workflow.process.application.dto.DraftRevisionRequest;
+import io.github.illuseahashmap.workflow.process.application.dto.DraftVersionRequest;
+import io.github.illuseahashmap.workflow.process.application.dto.ProcessDraftView;
+import io.github.illuseahashmap.workflow.process.application.dto.SaveProcessDraftRequest;
 import io.github.illuseahashmap.workflow.process.application.dto.ActivateProcessVersionRequest;
 import io.github.illuseahashmap.workflow.process.application.dto.ActiveProcessVersionResult;
 import io.github.illuseahashmap.workflow.process.application.dto.DeployProcessRequest;
@@ -21,7 +34,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -33,11 +48,93 @@ public class WorkflowManagementController {
 
     private final WorkflowDefinitionService workflowDefinitionService;
     private final WorkflowAdministrationService administrationService;
+    private final ProcessDraftService processDraftService;
+    private final ProcessPublishService processPublishService;
+    private final DraftPublishMigrationService draftPublishMigrationService;
 
     public WorkflowManagementController(WorkflowDefinitionService workflowDefinitionService,
-                                        WorkflowAdministrationService administrationService) {
+                                        WorkflowAdministrationService administrationService,
+                                        ProcessDraftService processDraftService,
+                                        ProcessPublishService processPublishService,
+                                        DraftPublishMigrationService draftPublishMigrationService) {
         this.workflowDefinitionService = workflowDefinitionService;
         this.administrationService = administrationService;
+        this.processDraftService = processDraftService;
+        this.processPublishService = processPublishService;
+        this.draftPublishMigrationService = draftPublishMigrationService;
+    }
+
+    /** One-off conversion of the current tenant. Dry run unless {@code dryRun=false} is sent. */
+    @PostMapping("/migrations/draft-publish")
+    @PreAuthorize("hasRole('WF_PLATFORM_ADMIN')")
+    public ApiResponse<DraftPublishMigrationResult> migrateDraftPublish(
+            @RequestParam(defaultValue = "true") boolean dryRun) {
+        return ApiResponse.ok(draftPublishMigrationService.run(dryRun));
+    }
+
+    @PostMapping("/{key}/publish")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<PublishProcessResult> publish(@PathVariable String key,
+                                                     @Valid @RequestBody PublishProcessRequest request) {
+        return ApiResponse.ok(processPublishService.publish(key, request));
+    }
+
+    @PostMapping("/{key}/rollback")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<PublishProcessResult> rollback(@PathVariable String key,
+                                                      @Valid @RequestBody RollbackProcessRequest request) {
+        return ApiResponse.ok(processPublishService.rollback(key, request));
+    }
+
+    @PostMapping("/{key}/suspend")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<ProcessReleaseView> suspend(@PathVariable String key) {
+        return ApiResponse.ok(processPublishService.suspend(key));
+    }
+
+    @PostMapping("/{key}/resume")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<ProcessReleaseView> resume(@PathVariable String key) {
+        return ApiResponse.ok(processPublishService.resume(key));
+    }
+
+    @GetMapping("/{key}/releases")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR', 'WF_VIEWER')")
+    public ApiResponse<List<ProcessReleaseView>> releases(@PathVariable String key) {
+        return ApiResponse.ok(processPublishService.releases(key));
+    }
+
+    @PostMapping("/drafts")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<ProcessDraftView> createDraft(@Valid @RequestBody CreateProcessDraftRequest request) {
+        return ApiResponse.ok(processDraftService.create(request));
+    }
+
+    @GetMapping("/drafts/{key}")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR', 'WF_VIEWER')")
+    public ApiResponse<ProcessDraftView> draft(@PathVariable String key) {
+        return ApiResponse.ok(processDraftService.get(key));
+    }
+
+    @PutMapping("/drafts/{key}")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<ProcessDraftView> saveDraft(@PathVariable String key,
+                                                   @Valid @RequestBody SaveProcessDraftRequest request) {
+        return ApiResponse.ok(processDraftService.save(key, request));
+    }
+
+    @PostMapping("/drafts/{key}/load-version")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<ProcessDraftView> loadVersionIntoDraft(@PathVariable String key,
+                                                              @Valid @RequestBody DraftVersionRequest request) {
+        return ApiResponse.ok(processDraftService.loadVersion(key, request));
+    }
+
+    @PostMapping("/drafts/{key}/discard")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN')")
+    public ApiResponse<ProcessDraftView> discardDraft(@PathVariable String key,
+                                                      @Valid @RequestBody DraftRevisionRequest request) {
+        return ApiResponse.ok(processDraftService.discard(key, request));
     }
 
     @PostMapping("/deploy")

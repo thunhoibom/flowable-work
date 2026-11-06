@@ -95,6 +95,7 @@ class GlobalExceptionHandlerTest {
                 Arguments.of(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN),
                 Arguments.of(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND),
                 Arguments.of(ErrorCode.CONFLICT, HttpStatus.CONFLICT),
+                Arguments.of(ErrorCode.DRAFT_REVISION_CONFLICT, HttpStatus.CONFLICT),
                 Arguments.of(ErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST),
                 Arguments.of(ErrorCode.RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS),
                 Arguments.of(ErrorCode.INTERNAL_ERROR, HttpStatus.INTERNAL_SERVER_ERROR));

@@ -41,8 +41,10 @@ class PlatformMigrationIntegrationTest {
                      WHERE success = TRUE AND version IS NOT NULL
                      """)) {
             assertThat(resultSet.next()).isTrue();
-            assertThat(resultSet.getInt(1)).isEqualTo(37);
+            assertThat(resultSet.getInt(1)).isEqualTo(38);
         }
+        assertThat(tableExists("workflow_process_draft")).isTrue();
+        assertThat(tableExists("workflow_process_release")).isTrue();
         assertThat(tableExists("workflow_node_assignment_rule")).isTrue();
         assertThat(tableExists("auth_user_tenant")).isTrue();
         assertThat(tableExists("workflow_assignment_fallback_command")).isTrue();
@@ -121,12 +123,13 @@ class PlatformMigrationIntegrationTest {
              ResultSet resultSet = statement.executeQuery("""
                      SELECT COUNT(*)
                      FROM pg_class
-                     WHERE relname IN ('workflow_tenant', 'agent_run', 'workflow_node_assignment_rule')
+                     WHERE relname IN ('workflow_tenant', 'agent_run', 'workflow_node_assignment_rule',
+                                       'workflow_process_draft', 'workflow_process_release')
                        AND relrowsecurity = TRUE
                        AND relforcerowsecurity = TRUE
                      """)) {
             assertThat(resultSet.next()).isTrue();
-            assertThat(resultSet.getInt(1)).isEqualTo(3);
+            assertThat(resultSet.getInt(1)).isEqualTo(5);
         }
     }
 

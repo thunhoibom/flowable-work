@@ -1,4 +1,4 @@
-import { agentsEnabled } from '@/config/product'
+import { agentsEnabled, scriptTasksEnabled } from '@/config/product'
 
 interface PaletteEntry {
   group: string
@@ -19,16 +19,21 @@ interface CreateService {
 }
 
 interface ElementFactory {
-  createShape(properties: { type: string }): unknown
+  createShape(properties: { type: string; businessObject?: unknown }): unknown
+}
+
+interface BpmnFactory {
+  create(type: string, attrs?: Record<string, unknown>): unknown
 }
 
 class WorkflowPaletteProvider {
-  static $inject = ['palette', 'create', 'elementFactory']
+  static $inject = ['palette', 'create', 'elementFactory', 'bpmnFactory']
 
   constructor(
     palette: Palette,
     private readonly create: CreateService,
     private readonly elementFactory: ElementFactory,
+    private readonly bpmnFactory: BpmnFactory,
   ) {
     palette.registerProvider(500, this)
   }
@@ -48,6 +53,23 @@ class WorkflowPaletteProvider {
           dragstart: createUserTask,
           click: createUserTask,
         },
+      }
+
+      const createScriptTask = (event: Event) => {
+        const businessObject = this.bpmnFactory.create('bpmn:ScriptTask', {
+          scriptFormat: 'javascript',
+        })
+        const shape = this.elementFactory.createShape({ type: 'bpmn:ScriptTask', businessObject })
+        this.create.start(event, shape)
+      }
+
+      if (scriptTasksEnabled) {
+        entries['create.script-task'] = {
+          group: 'activity',
+          className: 'bpmn-icon-script-task',
+          title: 'Thêm bước script',
+          action: { dragstart: createScriptTask, click: createScriptTask },
+        }
       }
       if (!agentsEnabled) delete entries['create.agent-task']
       return entries

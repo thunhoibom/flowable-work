@@ -138,6 +138,29 @@ class AssignmentRuleServiceImplTest {
         verify(ruleRepository).save(any());
     }
 
+    @Test
+    void copiesRulesFromAGivenSourceVersion() {
+        when(definitionCatalog.findById(TENANT_ID, "expense:1:100"))
+                .thenReturn(Optional.of(new ProcessDefinitionCatalog.DefinitionInfo("expense:1:100", "expense", 1)));
+        when(definitionCatalog.findById(TENANT_ID, "expense:3:300"))
+                .thenReturn(Optional.of(new ProcessDefinitionCatalog.DefinitionInfo("expense:3:300", "expense", 3)));
+        when(ruleRepository.findByProcessDefinition(TENANT_ID, "expense:1:100"))
+                .thenReturn(List.of(rule(10L, "expense:1:100", 1, "approve", null)));
+        when(ruleRepository.findByProcessDefinition(TENANT_ID, "expense:3:300")).thenReturn(List.of());
+        when(definitionCatalog.expectedAssignmentType("expense:3:300", "approve"))
+                .thenReturn(AssignmentType.ASSIGNEE);
+
+        AssignmentRuleInheritResult result = service.copyRules("expense:1:100", "expense:3:300");
+
+        assertEquals(1, result.copiedCount());
+        assertEquals(1, result.sourceVersion());
+        assertEquals(3, result.targetVersion());
+        ArgumentCaptor<NodeAssignmentRule> captor = ArgumentCaptor.forClass(NodeAssignmentRule.class);
+        verify(ruleRepository).save(captor.capture());
+        assertEquals("expense:3:300", captor.getValue().processDefinitionId());
+        assertEquals(3, captor.getValue().version());
+    }
+
     private AssignmentRuleCommand command(String processDefinitionId, String taskDefinitionKey, String description) {
         return new AssignmentRuleCommand(
                 processDefinitionId,

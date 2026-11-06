@@ -122,7 +122,8 @@ const emit = defineEmits<{
           </div>
         </div>
         <p class="property-hint">
-          Bên trái là dữ liệu Agent cần. Bên phải là dữ liệu của quy trình. Chỉ những mục bạn gắn mới được gửi.
+          Bên trái là dữ liệu Agent cần. Bên phải là dữ liệu của quy trình. Chỉ những mục bạn gắn
+          mới được gửi.
         </p>
       </el-form-item>
       <el-form-item label="Dữ liệu nhận về">

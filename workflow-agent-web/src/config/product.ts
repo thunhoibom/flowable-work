@@ -4,3 +4,6 @@
  * settings stay hidden. Existing processes that already contain an Agent step still run.
  */
 export const agentsEnabled = false
+
+/** Shows the script step in the palette. The backend flag workflow.script-task.enabled still decides. */
+export const scriptTasksEnabled = import.meta.env.VITE_SCRIPT_TASKS_ENABLED === 'true'

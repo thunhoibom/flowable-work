@@ -2,15 +2,17 @@ package io.github.illuseahashmap.workflow.process.infrastructure.flowable;
 
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessDefinitionDiagramView;
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessDefinitionSummaryView;
+import io.github.illuseahashmap.workflow.process.application.port.ProcessDraftRepository;
+import io.github.illuseahashmap.workflow.process.application.port.ProcessReleaseRepository;
+import io.github.illuseahashmap.workflow.process.domain.ProcessDraftHeader;
+import io.github.illuseahashmap.workflow.process.domain.ProcessRelease;
 import io.github.illuseahashmap.workflow.shared.context.TenantProvider;
 import io.github.illuseahashmap.workflow.shared.exception.BusinessException;
 import io.github.illuseahashmap.workflow.shared.exception.ErrorCode;
 import io.github.illuseahashmap.workflow.shared.response.PageResult;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
@@ -22,69 +24,80 @@ import java.util.stream.Collectors;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.repository.ProcessDefinition;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+/** List and diagram reads. A key is published when its latest definition is not suspended. */
 @Component
 class WorkflowDefinitionReadService {
 
+    static final String PUBLISHED = "published";
+    static final String SUSPENDED = "suspended";
+    static final String DRAFT_ONLY = "draft_only";
+
     private final RepositoryService repositoryService;
-    private final JdbcTemplate jdbcTemplate;
     private final TenantProvider tenantProvider;
+    private final ProcessDraftRepository drafts;
+    private final ProcessReleaseRepository releases;
+    private final ProcessDefinitionLookup lookup;
 
     WorkflowDefinitionReadService(RepositoryService repositoryService,
-                                  JdbcTemplate jdbcTemplate,
-                                  TenantProvider tenantProvider) {
+                                  TenantProvider tenantProvider,
+                                  ProcessDraftRepository drafts,
+                                  ProcessReleaseRepository releases,
+                                  ProcessDefinitionLookup lookup) {
         this.repositoryService = repositoryService;
-        this.jdbcTemplate = jdbcTemplate;
         this.tenantProvider = tenantProvider;
+        this.drafts = drafts;
+        this.releases = releases;
+        this.lookup = lookup;
     }
 
     PageResult<ProcessDefinitionSummaryView> page(
             Integer pageNum, Integer pageSize, String key, String name, String publishStatus) {
         int normalizedPage = normalizePage(pageNum);
         int normalizedSize = normalizeSize(pageSize);
+        String normalizedStatus = normalizeStatus(publishStatus);
         String tenantId = tenantProvider.current().tenantId();
-        var query = repositoryService.createProcessDefinitionQuery()
+        List<ProcessDefinition> definitions = repositoryService.createProcessDefinitionQuery()
                 .processDefinitionTenantId(tenantId)
-                .latestVersion();
-        if (StringUtils.hasText(key)) {
-            query.processDefinitionKeyLike("%" + key.trim() + "%");
-        }
-        if (StringUtils.hasText(name)) {
-            query.processDefinitionNameLike("%" + name.trim() + "%");
-        }
-        Map<String, ActiveVersionRow> activeVersions = activeVersions(tenantId);
-        List<ProcessDefinition> definitions = query.list();
-        Map<String, ProcessDefinition> activeDefinitions = definitionsById(activeVersions.values().stream()
-                .map(ActiveVersionRow::processDefinitionId)
-                .collect(Collectors.toSet()));
+                .latestVersion()
+                .list();
+        Map<String, ProcessDraftHeader> draftsByKey = drafts.listHeaders(tenantId).stream()
+                .collect(Collectors.toMap(ProcessDraftHeader::processDefinitionKey, Function.identity()));
+        Map<String, ProcessRelease> releaseByDefinition = releases.latestByDefinition(tenantId);
         Map<String, OffsetDateTime> deploymentTimes = deploymentTimes(definitions.stream()
                 .map(ProcessDefinition::getDeploymentId)
                 .collect(Collectors.toSet()));
-        String normalizedStatus = normalizeStatus(publishStatus);
-        List<ProcessDefinitionSummaryView> summaries = definitions.stream()
-                .map(definition -> toSummary(definition, activeVersions.get(definition.getKey()),
-                        activeDefinitions, deploymentTimes))
-                .filter(summary -> "all".equals(normalizedStatus)
-                        || normalizedStatus.equals(summary.publishStatus()))
+
+        List<ProcessDefinitionSummaryView> summaries = new ArrayList<>();
+        for (ProcessDefinition definition : definitions) {
+            summaries.add(toSummary(definition, releaseByDefinition.get(definition.getId()),
+                    draftsByKey.remove(definition.getKey()), deploymentTimes));
+        }
+        draftsByKey.values().forEach(draft -> summaries.add(draftOnly(draft, tenantId)));
+
+        List<ProcessDefinitionSummaryView> filtered = summaries.stream()
+                .filter(summary -> matches(summary.processDefinitionKey(), key))
+                .filter(summary -> matches(summary.processDefinitionName(), name))
+                .filter(summary -> statusMatches(normalizedStatus, summary.publishStatus()))
                 .sorted(Comparator.comparing(
                         ProcessDefinitionSummaryView::latestDeployTime,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
-        return slice(summaries, normalizedPage, normalizedSize);
+        return slice(filtered, normalizedPage, normalizedSize);
     }
 
     ProcessDefinitionDiagramView diagram(String key, Integer version, String processDefinitionId) {
         String tenantId = tenantProvider.current().tenantId();
         ProcessDefinition definition = resolve(tenantId, key, version, processDefinitionId);
-        ActiveVersionRow activeVersion = activeVersions(tenantId).get(definition.getKey());
+        boolean active = !definition.isSuspended() && lookup.latest(tenantId, definition.getKey())
+                .map(latest -> latest.getId().equals(definition.getId()))
+                .orElse(false);
         return new ProcessDefinitionDiagramView(
                 definition.getId(), definition.getKey(), definition.getName(), definition.getVersion(),
                 definition.getDeploymentId(), deploymentTime(definition.getDeploymentId()),
-                activeVersion != null && definition.getId().equals(activeVersion.processDefinitionId()),
-                readBpmnXml(definition), definition.getTenantId());
+                active, lookup.xml(definition), definition.getTenantId());
     }
 
     String readBpmnXml(String processDefinitionId) {
@@ -94,30 +107,46 @@ class WorkflowDefinitionReadService {
         if (definition == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Process definition does not exist");
         }
-        return readBpmnXml(definition);
+        return lookup.xml(definition);
     }
 
-    private ProcessDefinitionSummaryView toSummary(
-            ProcessDefinition definition,
-            ActiveVersionRow active,
-            Map<String, ProcessDefinition> activeDefinitions,
-            Map<String, OffsetDateTime> deploymentTimes) {
-        ProcessDefinition activeDefinition = active == null ? null : activeDefinitions.get(active.processDefinitionId());
+    private ProcessDefinitionSummaryView toSummary(ProcessDefinition definition, ProcessRelease release,
+                                                   ProcessDraftHeader draft,
+                                                   Map<String, OffsetDateTime> deploymentTimes) {
+        boolean running = !definition.isSuspended();
+        boolean changed = draft != null && release != null && !draft.xmlSha256().equals(release.xmlSha256());
         return new ProcessDefinitionSummaryView(
                 definition.getId(), definition.getKey(), definition.getName(), definition.getVersion(),
                 definition.getDeploymentId(), deploymentTimes.get(definition.getDeploymentId()),
-                active == null ? null : active.version(), active == null ? null : active.processDefinitionId(),
-                activeDefinition == null ? null : activeDefinition.getDeploymentId(),
-                active == null ? null : active.activatedAt(),
-                active == null ? "unpublished" : "published", definition.getTenantId());
+                running ? definition.getVersion() : null,
+                running ? definition.getId() : null,
+                running ? definition.getDeploymentId() : null,
+                release == null ? null : release.performedAt(),
+                running ? PUBLISHED : SUSPENDED,
+                definition.getTenantId(),
+                changed);
     }
 
-    private Map<String, ProcessDefinition> definitionsById(Set<String> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
+    private static ProcessDefinitionSummaryView draftOnly(ProcessDraftHeader draft, String tenantId) {
+        return new ProcessDefinitionSummaryView(
+                null, draft.processDefinitionKey(), draft.name(), 0, null, draft.updatedAt(),
+                null, null, null, null, DRAFT_ONLY, tenantId, true);
+    }
+
+    private static boolean matches(String value, String filter) {
+        if (!StringUtils.hasText(filter)) {
+            return true;
         }
-        return repositoryService.createProcessDefinitionQuery().processDefinitionIds(ids).list().stream()
-                .collect(Collectors.toMap(ProcessDefinition::getId, Function.identity()));
+        return value != null && value.toLowerCase(Locale.ROOT).contains(filter.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** {@code unpublished} is kept for older clients and means "not running". */
+    private static boolean statusMatches(String filter, String status) {
+        return switch (filter) {
+            case "all" -> true;
+            case "unpublished" -> !PUBLISHED.equals(status);
+            default -> filter.equals(status);
+        };
     }
 
     private Map<String, OffsetDateTime> deploymentTimes(Set<String> ids) {
@@ -129,6 +158,7 @@ class WorkflowDefinitionReadService {
                         deployment -> toOffsetDateTime(deployment.getDeploymentTime())));
     }
 
+    /** No version and no id: the latest version, suspended or not, so a stopped process can still be viewed. */
     private ProcessDefinition resolve(String tenantId, String key, Integer version, String definitionId) {
         ProcessDefinition definition;
         if (StringUtils.hasText(definitionId)) {
@@ -140,47 +170,14 @@ class WorkflowDefinitionReadService {
                 definition = null;
             }
         } else if (version != null) {
-            definition = repositoryService.createProcessDefinitionQuery()
-                    .processDefinitionTenantId(tenantId)
-                    .processDefinitionKey(key)
-                    .processDefinitionVersion(version)
-                    .singleResult();
+            definition = lookup.version(tenantId, key, version).orElse(null);
         } else {
-            ActiveVersionRow active = activeVersions(tenantId).get(key);
-            definition = active == null ? null : repositoryService.createProcessDefinitionQuery()
-                    .processDefinitionTenantId(tenantId)
-                    .processDefinitionId(active.processDefinitionId())
-                    .singleResult();
+            definition = lookup.latest(tenantId, key).orElse(null);
         }
         if (definition == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Process definition does not exist");
         }
         return definition;
-    }
-
-    private Map<String, ActiveVersionRow> activeVersions(String tenantId) {
-        return jdbcTemplate.query("""
-                SELECT process_definition_key, process_definition_id, version, activated_at
-                FROM workflow_active_version WHERE tenant_id = ?
-                """, (resultSet, rowNumber) -> new ActiveVersionRow(
-                resultSet.getString("process_definition_key"),
-                resultSet.getString("process_definition_id"),
-                resultSet.getInt("version"),
-                resultSet.getObject("activated_at", OffsetDateTime.class)), tenantId)
-                .stream()
-                .collect(Collectors.toMap(ActiveVersionRow::processDefinitionKey, Function.identity()));
-    }
-
-    private String readBpmnXml(ProcessDefinition definition) {
-        try (InputStream input = repositoryService.getResourceAsStream(
-                definition.getDeploymentId(), definition.getResourceName())) {
-            if (input == null) {
-                throw new BusinessException(ErrorCode.NOT_FOUND, "BPMN XML resource does not exist");
-            }
-            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException exception) {
-            throw new BusinessException(ErrorCode.WORKFLOW_ERROR, "BPMN XML cannot be read");
-        }
     }
 
     private OffsetDateTime deploymentTime(String deploymentId) {
@@ -194,7 +191,7 @@ class WorkflowDefinitionReadService {
 
     private String normalizeStatus(String status) {
         String normalized = StringUtils.hasText(status) ? status.trim().toLowerCase(Locale.ROOT) : "all";
-        if (!Set.of("all", "published", "unpublished").contains(normalized)) {
+        if (!Set.of("all", PUBLISHED, SUSPENDED, DRAFT_ONLY, "unpublished").contains(normalized)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "Unsupported status: " + status);
         }
         return normalized;
@@ -212,12 +209,5 @@ class WorkflowDefinitionReadService {
         int fromIndex = Math.min((pageNum - 1) * pageSize, source.size());
         int toIndex = Math.min(fromIndex + pageSize, source.size());
         return new PageResult<>(source.size(), pageNum, pageSize, source.subList(fromIndex, toIndex));
-    }
-
-    private record ActiveVersionRow(
-            String processDefinitionKey,
-            String processDefinitionId,
-            int version,
-            OffsetDateTime activatedAt) {
     }
 }
