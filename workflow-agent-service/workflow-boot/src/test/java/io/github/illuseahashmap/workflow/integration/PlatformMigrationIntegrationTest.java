@@ -41,8 +41,9 @@ class PlatformMigrationIntegrationTest {
                      WHERE success = TRUE AND version IS NOT NULL
                      """)) {
             assertThat(resultSet.next()).isTrue();
-            assertThat(resultSet.getInt(1)).isEqualTo(38);
+            assertThat(resultSet.getInt(1)).isEqualTo(39);
         }
+        assertThat(tableExists("workflow_call_reference")).isTrue();
         assertThat(tableExists("workflow_process_draft")).isTrue();
         assertThat(tableExists("workflow_process_release")).isTrue();
         assertThat(tableExists("workflow_node_assignment_rule")).isTrue();
@@ -124,12 +125,13 @@ class PlatformMigrationIntegrationTest {
                      SELECT COUNT(*)
                      FROM pg_class
                      WHERE relname IN ('workflow_tenant', 'agent_run', 'workflow_node_assignment_rule',
-                                       'workflow_process_draft', 'workflow_process_release')
+                                       'workflow_process_draft', 'workflow_process_release',
+                                       'workflow_call_reference')
                        AND relrowsecurity = TRUE
                        AND relforcerowsecurity = TRUE
                      """)) {
             assertThat(resultSet.next()).isTrue();
-            assertThat(resultSet.getInt(1)).isEqualTo(5);
+            assertThat(resultSet.getInt(1)).isEqualTo(6);
         }
     }
 

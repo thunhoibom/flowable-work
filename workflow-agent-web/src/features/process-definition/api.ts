@@ -6,6 +6,7 @@ import type {
   ProcessDefinition,
   ProcessDefinitionSummary,
   ProcessDraft,
+  ProcessReference,
   ProcessRelease,
   PublishProcessResult,
 } from './types'
@@ -67,8 +68,21 @@ export const definitionApi = {
     apiClient.post<ProcessRelease>(`${ROOT}/${key(processDefinitionKey)}/suspend`),
   resume: (processDefinitionKey: string) =>
     apiClient.post<ProcessRelease>(`${ROOT}/${key(processDefinitionKey)}/resume`),
+  /** Published processes that call this one ("where used"). */
+  callers: (processDefinitionKey: string) =>
+    apiClient.get<ProcessReference[]>(`${ROOT}/${key(processDefinitionKey)}/callers`),
+  /** Processes that the latest version of this one calls. */
+  callees: (processDefinitionKey: string) =>
+    apiClient.get<ProcessReference[]>(`${ROOT}/${key(processDefinitionKey)}/callees`),
   releases: (processDefinitionKey: string) =>
     apiClient.get<ProcessRelease[]>(`${ROOT}/${key(processDefinitionKey)}/releases`),
+
+  /** Start-time Agent inputs of a published process, used to suggest call activity in-mappings. */
+  startInputs: (processDefinitionKey: string) =>
+    apiClient.post<{ fields: Array<{ variablePath: string; label: string; required: boolean }> }>(
+      '/workflow/process/interaction',
+      { processDefinitionKey, variables: {} },
+    ),
 
   deleteAll: (processDefinitionKey: string) =>
     apiClient.delete<void>(`${ROOT}/definition`, { params: { processDefinitionKey } }),

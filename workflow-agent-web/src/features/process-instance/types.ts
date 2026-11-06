@@ -14,6 +14,22 @@ export interface ProcessInstanceSummary {
   deleteReason?: string
   status: string
   tenantId: string
+  /** Set when a call activity of that instance started this one. */
+  superProcessInstanceId?: string
+}
+
+export interface ProcessInstanceLink {
+  processInstanceId: string
+  processDefinitionKey?: string
+  processDefinitionName?: string
+  businessKey?: string
+  status: string
+}
+
+export interface ChildProcessInstance {
+  callActivityId?: string
+  callActivityName?: string
+  instance: ProcessInstanceSummary
 }
 
 export interface TaskItem {
@@ -48,6 +64,11 @@ export interface ProcessInstanceDetail {
   instance: ProcessInstanceSummary
   tasks: TaskItem[]
   variables: VariableItem[]
+  /** Root first; empty for a root instance. */
+  ancestors: ProcessInstanceLink[]
+  /** The parent's call activity that started this instance. */
+  callActivityId?: string
+  children: ChildProcessInstance[]
 }
 
 export interface ActivityDetail {

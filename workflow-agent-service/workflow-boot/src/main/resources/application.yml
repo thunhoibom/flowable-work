@@ -58,6 +58,11 @@ workflow:
     environment: ${WORKFLOW_SERVICES_ENVIRONMENT:default}
   definition:
     max-bpmn-bytes: ${WORKFLOW_DEFINITION_MAX_BPMN_BYTES:2097152}
+  subprocess:
+    max-nesting-depth: ${WORKFLOW_SUBPROCESS_MAX_NESTING_DEPTH:3}
+    call-activity-enabled: ${WORKFLOW_SUBPROCESS_CALL_ACTIVITY_ENABLED:false}
+    max-call-depth: ${WORKFLOW_SUBPROCESS_MAX_CALL_DEPTH:5}
+    max-io-parameters: ${WORKFLOW_SUBPROCESS_MAX_IO_PARAMETERS:64}
   script-task:
     enabled: ${WORKFLOW_SCRIPT_TASK_ENABLED:false}
     max-script-length: ${WORKFLOW_SCRIPT_TASK_MAX_SCRIPT_LENGTH:20000}

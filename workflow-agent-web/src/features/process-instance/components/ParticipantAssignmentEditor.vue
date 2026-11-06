@@ -66,7 +66,9 @@ function assignmentLabel(requirement: ParticipantRequirement) {
     <div class="participant-section__heading">
       <div>
         <h3>Giao việc</h3>
-        <p>Giao từng bước cho một người. Bước không bắt buộc có thể để trống, hệ thống sẽ tự giao.</p>
+        <p>
+          Giao từng bước cho một người. Bước không bắt buộc có thể để trống, hệ thống sẽ tự giao.
+        </p>
       </div>
     </div>
     <article

@@ -1,4 +1,4 @@
-import { agentsEnabled, scriptTasksEnabled } from '@/config/product'
+import { agentsEnabled, callActivityEnabled, scriptTasksEnabled } from '@/config/product'
 
 interface PaletteEntry {
   group: string
@@ -71,6 +71,22 @@ class WorkflowPaletteProvider {
           action: { dragstart: createScriptTask, click: createScriptTask },
         }
       }
+      const createCallActivity = (event: Event) => {
+        const shape = this.elementFactory.createShape({ type: 'bpmn:CallActivity' })
+        this.create.start(event, shape)
+      }
+
+      if (callActivityEnabled) {
+        entries['create.call-activity'] = {
+          group: 'activity',
+          className: 'bpmn-icon-call-activity',
+          title: 'Gọi quy trình khác',
+          action: { dragstart: createCallActivity, click: createCallActivity },
+        }
+      }
+
+      const subProcess = entries['create.subprocess-expanded']
+      if (subProcess) subProcess.title = 'Thêm quy trình con'
       if (!agentsEnabled) delete entries['create.agent-task']
       return entries
     }

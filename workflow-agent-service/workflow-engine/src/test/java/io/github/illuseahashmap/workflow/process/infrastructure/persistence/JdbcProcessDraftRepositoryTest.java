@@ -2,6 +2,7 @@ package io.github.illuseahashmap.workflow.process.infrastructure.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.illuseahashmap.workflow.process.domain.CallReference;
 import io.github.illuseahashmap.workflow.process.domain.ProcessDraft;
 import io.github.illuseahashmap.workflow.process.domain.ProcessRelease;
 import io.github.illuseahashmap.workflow.process.domain.ReleaseAction;
@@ -11,6 +12,7 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,12 +36,14 @@ class JdbcProcessDraftRepositoryTest {
         try (Connection connection = DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
              Statement statement = connection.createStatement()) {
-            String sql = new String(JdbcProcessDraftRepositoryTest.class.getResourceAsStream(
-                    "/db/migration/platform/V38__process_draft_and_release.sql").readAllBytes(),
-                    StandardCharsets.UTF_8);
-            for (String command : sql.split(";")) {
-                if (!command.isBlank()) {
-                    statement.execute(command);
+            for (String migration : new String[] {
+                    "V38__process_draft_and_release.sql", "V39__workflow_call_reference.sql"}) {
+                String sql = new String(JdbcProcessDraftRepositoryTest.class.getResourceAsStream(
+                        "/db/migration/platform/" + migration).readAllBytes(), StandardCharsets.UTF_8);
+                for (String command : sql.split(";")) {
+                    if (!command.isBlank()) {
+                        statement.execute(command);
+                    }
                 }
             }
         }
@@ -85,6 +89,31 @@ class JdbcProcessDraftRepositoryTest {
 
         releases.deleteByKey("t1", "pay");
         assertThat(releases.hasAny("t1", "pay")).isFalse();
+    }
+
+    @Test
+    void replacesAndQueriesCallReferences() {
+        var references = new JdbcCallReferenceRepository(jdbc);
+        references.replaceForDefinition("t1", "order:1:1", List.of(
+                new CallReference("order:1:1", "order", 1, "pay", "payment"),
+                new CallReference("order:1:1", "order", 1, "ship", "shipping")));
+        references.replaceForDefinition("t1", "refund:1:3", List.of(
+                new CallReference("refund:1:3", "refund", 1, "pay", "payment")));
+        references.replaceForDefinition("t2", "order:1:9", List.of(
+                new CallReference("order:1:9", "order", 1, "pay", "payment")));
+
+        assertThat(references.findCallers("t1", "payment")).extracting(CallReference::parentDefinitionKey)
+                .containsExactly("order", "refund");
+        assertThat(references.findAll("t1")).hasSize(3);
+
+        references.replaceForDefinition("t1", "order:1:1", List.of(
+                new CallReference("order:1:1", "order", 1, "ship", "shipping")));
+        assertThat(references.findByDefinition("t1", "order:1:1")).extracting(CallReference::activityId)
+                .containsExactly("ship");
+
+        references.deleteForKey("t1", "refund");
+        assertThat(references.findCallers("t1", "payment")).isEmpty();
+        assertThat(references.findCallers("t2", "payment")).hasSize(1);
     }
 
     private static ProcessRelease release(String id, int version, ReleaseAction action, OffsetDateTime at) {

@@ -15,9 +15,7 @@ export function buildProcessVariables(rows: ProcessVariableDraft[]) {
     if (!name && !row.value.trim()) continue
     if (!name) throw new Error('Hãy nhập tên dữ liệu')
     if (INTERNAL_PARTICIPANT_SUFFIXES.some((suffix) => name.endsWith(suffix))) {
-      throw new Error(
-        'Hãy chọn người trong mục “Giao việc”, không nhập tên biến kỹ thuật',
-      )
+      throw new Error('Hãy chọn người trong mục “Giao việc”, không nhập tên biến kỹ thuật')
     }
     if (Object.prototype.hasOwnProperty.call(variables, name)) {
       throw new Error(`Tên dữ liệu bị trùng: ${name}`)

@@ -73,6 +73,20 @@ const diagramQuery = useQuery({
   queryFn: () => processInstanceApi.diagram(id.value),
 })
 const instance = computed(() => detailQuery.data.value?.instance)
+const ancestors = computed(() => detailQuery.data.value?.ancestors ?? [])
+const children = computed(() => detailQuery.data.value?.children ?? [])
+const isChild = computed(() => Boolean(instance.value?.superProcessInstanceId))
+
+function openInstance(processInstanceId: string) {
+  void router.push({ name: 'process-instance-detail', params: { id: processInstanceId } })
+}
+
+/** Clicking a call activity on the diagram opens what it started; several runs show the tab. */
+function openChildOf(activityId: string) {
+  const started = children.value.filter((child) => child.callActivityId === activityId)
+  if (started.length === 1) openInstance(started[0]!.instance.processInstanceId)
+  else if (started.length > 1) activeTab.value = 'children'
+}
 const visibleTasks = computed(() => {
   const start = (taskPage.pageNum - 1) * taskPage.pageSize
   return (detailQuery.data.value?.tasks ?? []).slice(start, start + taskPage.pageSize)
@@ -93,7 +107,8 @@ const terminateMutation = useMutation({
 const transferMutation = useMutation({
   mutationFn: () => {
     const task = selectedTask.value
-    if (!task || !canActOnTask(task)) throw new Error('Người dùng hiện tại không thao tác được nhiệm vụ này')
+    if (!task || !canActOnTask(task))
+      throw new Error('Người dùng hiện tại không thao tác được nhiệm vụ này')
     const targetCount = [
       transferForm.targetAssignee,
       transferForm.targetCandidateUsers,
@@ -120,7 +135,8 @@ const transferMutation = useMutation({
 const decisionMutation = useMutation({
   mutationFn: () => {
     const task = selectedTask.value
-    if (!task || !canActOnTask(task)) throw new Error('Người dùng hiện tại không thao tác được nhiệm vụ này')
+    if (!task || !canActOnTask(task))
+      throw new Error('Người dùng hiện tại không thao tác được nhiệm vụ này')
     const variables = buildInteractionVariables(
       decisionInteractionFields.value,
       decisionInteractionValues.value,
@@ -172,12 +188,16 @@ async function refresh() {
   await queryClient.invalidateQueries({ queryKey: queryKeys.processInstances(tenantCode.value) })
 }
 async function terminate() {
-  const reason = await promptRequired('Hãy nhập lý do. Không hoàn tác được.', 'Kết thúc công việc', {
-    confirmButtonText: 'Kết thúc',
-    cancelButtonText: 'Hủy',
-    inputPattern: /\S+/,
-    inputErrorMessage: 'Lý do kết thúc không được để trống',
-  })
+  const reason = await promptRequired(
+    'Hãy nhập lý do. Không hoàn tác được.',
+    'Kết thúc công việc',
+    {
+      confirmButtonText: 'Kết thúc',
+      cancelButtonText: 'Hủy',
+      inputPattern: /\S+/,
+      inputErrorMessage: 'Lý do kết thúc không được để trống',
+    },
+  )
   if (!reason) return
   terminateMutation.mutate(reason)
 }
@@ -260,6 +280,16 @@ async function confirmDecision() {
 
 <template>
   <div class="detail-page" v-loading="detailQuery.isFetching.value">
+    <nav v-if="ancestors.length" class="instance-breadcrumb" aria-label="Chuỗi quy trình">
+      <template v-for="ancestor in ancestors" :key="ancestor.processInstanceId">
+        <el-button link type="primary" @click="openInstance(ancestor.processInstanceId)">
+          {{ ancestor.processDefinitionName || ancestor.processDefinitionKey }}
+          <small v-if="ancestor.businessKey">· {{ ancestor.businessKey }}</small>
+        </el-button>
+        <span aria-hidden="true">›</span>
+      </template>
+      <span>{{ instance?.processDefinitionName || 'Công việc' }}</span>
+    </nav>
     <header class="detail-header">
       <button
         class="icon-button"
@@ -277,12 +307,18 @@ async function confirmDecision() {
       <div class="toolbar-spacer" />
       <el-button @click="refresh"><RefreshCw :size="16" />Làm mới</el-button>
       <el-button
-        v-if="canOperateInstances && instance?.status === 'RUNNING'"
+        v-if="canOperateInstances && instance?.status === 'RUNNING' && !isChild"
         type="danger"
         plain
         @click="terminate"
         ><Ban :size="16" />Kết thúc</el-button
       >
+      <el-tooltip
+        v-else-if="canOperateInstances && instance?.status === 'RUNNING'"
+        content="Quy trình con chỉ kết thúc cùng instance gốc"
+      >
+        <el-button type="danger" plain disabled><Ban :size="16" />Kết thúc</el-button>
+      </el-tooltip>
     </header>
     <section class="instance-summary">
       <div>
@@ -302,15 +338,59 @@ async function confirmDecision() {
         <span>Thời điểm kết thúc</span><strong>{{ formatDateTime(instance?.endTime) }}</strong>
       </div>
       <div>
-        <span>Tổng thời lượng</span><strong>{{ formatDuration(instance?.durationInMillis) }}</strong>
+        <span>Tổng thời lượng</span
+        ><strong>{{ formatDuration(instance?.durationInMillis) }}</strong>
       </div>
     </section>
     <section class="detail-content">
       <el-tabs v-model="activeTab">
         <el-tab-pane label="Tiến độ" name="diagram"
-          ><ProcessDiagram v-if="activeTab === 'diagram'" :data="diagramQuery.data.value"
+          ><ProcessDiagram
+            v-if="activeTab === 'diagram'"
+            :data="diagramQuery.data.value"
+            @select="openChildOf"
         /></el-tab-pane>
-        <el-tab-pane :label="`Nhiệm vụ (${detailQuery.data.value?.tasks.length || 0})`" name="tasks">
+        <el-tab-pane
+          v-if="children.length"
+          :label="`Quy trình con (${children.length})`"
+          name="children"
+        >
+          <el-table :data="children" height="470">
+            <el-table-column label="Bước gọi" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">{{
+                row.callActivityName || row.callActivityId
+              }}</template>
+            </el-table-column>
+            <el-table-column label="Quy trình" min-width="170" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.instance.processDefinitionName }}</template>
+            </el-table-column>
+            <el-table-column label="Trạng thái" width="110" align="center">
+              <template #default="{ row }">
+                <StatusBadge
+                  :status="row.instance.status === 'RUNNING' ? 'RUNNING' : 'COMPLETED'"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column label="Bắt đầu lúc" min-width="165">
+              <template #default="{ row }">{{ formatDateTime(row.instance.startTime) }}</template>
+            </el-table-column>
+            <el-table-column label="Thao tác" width="110">
+              <template #default="{ row }">
+                <el-button
+                  link
+                  type="primary"
+                  @click="openInstance(row.instance.processInstanceId)"
+                >
+                  Mở
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane
+          :label="`Nhiệm vụ (${detailQuery.data.value?.tasks.length || 0})`"
+          name="tasks"
+        >
           <el-table :data="visibleTasks" height="470"
             ><el-table-column prop="taskName" label="Nhiệm vụ" min-width="150" /><el-table-column
               prop="taskDefinitionKey"
@@ -391,9 +471,10 @@ async function confirmDecision() {
               ><template #default="{ row }"
                 ><code>{{ displayValue(row.value) }}</code></template
               ></el-table-column
-            ><el-table-column prop="taskId" label="Gắn với nhiệm vụ" min-width="180" /><el-table-column
-              label="Thời điểm cập nhật"
-              width="175"
+            ><el-table-column
+              prop="taskId"
+              label="Gắn với nhiệm vụ"
+              min-width="180" /><el-table-column label="Thời điểm cập nhật" width="175"
               ><template #default="{ row }">{{
                 formatDateTime(row.lastUpdatedTime || row.createTime)
               }}</template></el-table-column

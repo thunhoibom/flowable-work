@@ -1,10 +1,9 @@
 package io.github.illuseahashmap.workflow.process.interfaces.rest;
 
 import io.github.illuseahashmap.workflow.shared.response.ApiResponse;
-import io.github.illuseahashmap.workflow.process.application.DraftPublishMigrationService;
 import io.github.illuseahashmap.workflow.process.application.ProcessDraftService;
-import io.github.illuseahashmap.workflow.process.application.dto.DraftPublishMigrationResult;
 import io.github.illuseahashmap.workflow.process.application.ProcessPublishService;
+import io.github.illuseahashmap.workflow.process.application.dto.ProcessReferenceView;
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessReleaseView;
 import io.github.illuseahashmap.workflow.process.application.dto.PublishProcessRequest;
 import io.github.illuseahashmap.workflow.process.application.dto.PublishProcessResult;
@@ -50,26 +49,15 @@ public class WorkflowManagementController {
     private final WorkflowAdministrationService administrationService;
     private final ProcessDraftService processDraftService;
     private final ProcessPublishService processPublishService;
-    private final DraftPublishMigrationService draftPublishMigrationService;
 
     public WorkflowManagementController(WorkflowDefinitionService workflowDefinitionService,
                                         WorkflowAdministrationService administrationService,
                                         ProcessDraftService processDraftService,
-                                        ProcessPublishService processPublishService,
-                                        DraftPublishMigrationService draftPublishMigrationService) {
+                                        ProcessPublishService processPublishService) {
         this.workflowDefinitionService = workflowDefinitionService;
         this.administrationService = administrationService;
         this.processDraftService = processDraftService;
         this.processPublishService = processPublishService;
-        this.draftPublishMigrationService = draftPublishMigrationService;
-    }
-
-    /** One-off conversion of the current tenant. Dry run unless {@code dryRun=false} is sent. */
-    @PostMapping("/migrations/draft-publish")
-    @PreAuthorize("hasRole('WF_PLATFORM_ADMIN')")
-    public ApiResponse<DraftPublishMigrationResult> migrateDraftPublish(
-            @RequestParam(defaultValue = "true") boolean dryRun) {
-        return ApiResponse.ok(draftPublishMigrationService.run(dryRun));
     }
 
     @PostMapping("/{key}/publish")
@@ -210,10 +198,11 @@ public class WorkflowManagementController {
             @RequestParam(required = false) String processDefinitionName,
             @RequestParam(required = false) String processInstanceId,
             @RequestParam(required = false) String businessKey,
-            @RequestParam(defaultValue = "all") String status) {
+            @RequestParam(defaultValue = "all") String status,
+            @RequestParam(defaultValue = "false") boolean rootOnly) {
         return ApiResponse.ok(administrationService.pageProcessInstances(
                 pageNum, pageSize, processDefinitionKey, processDefinitionName,
-                processInstanceId, businessKey, status));
+                processInstanceId, businessKey, status, rootOnly));
     }
 
     @GetMapping("/instance/detail")
@@ -234,6 +223,19 @@ public class WorkflowManagementController {
     public ApiResponse<Void> deleteDefinitions(@RequestParam String processDefinitionKey) {
         administrationService.deleteProcessDefinitions(processDefinitionKey);
         return ApiResponse.ok();
+    }
+
+    @GetMapping("/{key}/callers")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR', 'WF_VIEWER')")
+    public ApiResponse<List<ProcessReferenceView>> callers(@PathVariable String key) {
+        return ApiResponse.ok(administrationService.callers(key));
+    }
+
+    @GetMapping("/{key}/callees")
+    @PreAuthorize("hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_ADMIN', 'WF_OPERATOR', 'WF_VIEWER')")
+    public ApiResponse<List<ProcessReferenceView>> callees(@PathVariable String key,
+                                                           @RequestParam(required = false) Integer version) {
+        return ApiResponse.ok(administrationService.callees(key, version));
     }
 
     @DeleteMapping("/definition/version")

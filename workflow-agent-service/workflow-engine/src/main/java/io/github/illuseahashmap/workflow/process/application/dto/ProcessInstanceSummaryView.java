@@ -17,6 +17,8 @@ public record ProcessInstanceSummaryView(
         Long durationInMillis,
         String deleteReason,
         String status,
-        String tenantId
+        String tenantId,
+        /** The instance whose call activity started this one, or null for a root instance. */
+        String superProcessInstanceId
 ) {
 }

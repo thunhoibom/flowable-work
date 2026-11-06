@@ -23,6 +23,8 @@ export interface InstancePageQuery {
   processInstanceId?: string
   businessKey?: string
   status?: 'all' | 'running' | 'finished'
+  /** Hide instances started by a call activity. */
+  rootOnly?: boolean
 }
 
 export const processInstanceApi = {

@@ -31,6 +31,7 @@ class WorkflowAdministrationDeleteTest {
 
     private InMemoryProcessRepositories.Drafts drafts;
     private InMemoryProcessRepositories.Releases releases;
+    private InMemoryProcessRepositories.References callReferences;
     private AssignmentRuleService rules;
     private WorkflowAdministrationServiceImpl service;
 
@@ -52,11 +53,12 @@ class WorkflowAdministrationDeleteTest {
     void setUp() {
         drafts = new InMemoryProcessRepositories.Drafts();
         releases = new InMemoryProcessRepositories.Releases();
+        callReferences = new InMemoryProcessRepositories.References();
         rules = mock(AssignmentRuleService.class);
         service = new WorkflowAdministrationServiceImpl(engine.getRepositoryService(), engine.getRuntimeService(),
                 engine.getHistoryService(), mock(JdbcTemplate.class), mock(ProcessInstanceTransactionExecutor.class),
                 null, null, () -> new TenantContext.TenantInfo(TENANT, "del", "Del"), rules,
-                mock(WorkflowOperationAuditService.class), drafts, releases);
+                mock(WorkflowOperationAuditService.class), drafts, releases, callReferences);
     }
 
     private static ProcessDefinition deploy(String key) {
@@ -129,6 +131,24 @@ class WorkflowAdministrationDeleteTest {
         assertThat(drafts.find(TENANT, "x5")).isEmpty();
         assertThat(releases.hasAny(TENANT, "x5")).isFalse();
         verify(rules).deleteByProcessDefinitionKey("x5");
+    }
+
+    @Test
+    void deleteKeyRejectsAProcessThatAPublishedProcessCalls() {
+        deploy("x7");
+        ProcessDefinition caller = deploy("x8");
+        callReferences.replaceForDefinition(TENANT, caller.getId(), java.util.List.of(
+                new io.github.illuseahashmap.workflow.process.domain.CallReference(
+                        caller.getId(), "x8", caller.getVersion(), "call", "x7")));
+
+        assertThatThrownBy(() -> service.deleteProcessDefinitions("x7"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.CONFLICT))
+                .hasMessageContaining("x8 v1");
+
+        engine.getRepositoryService().suspendProcessDefinitionById(caller.getId(), false, null);
+        service.deleteProcessDefinitions("x7");
+        assertThat(count("x7")).isZero();
     }
 
     @Test

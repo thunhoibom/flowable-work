@@ -13,6 +13,7 @@ import io.github.illuseahashmap.workflow.assignment.application.AssignmentRuleSe
 import io.github.illuseahashmap.workflow.assignment.application.dto.AssignmentRuleInheritResult;
 import io.github.illuseahashmap.workflow.config.ProcessDefinitionProperties;
 import io.github.illuseahashmap.workflow.config.ScriptTaskProperties;
+import io.github.illuseahashmap.workflow.config.SubProcessProperties;
 import io.github.illuseahashmap.workflow.process.application.AgentBindingDeploymentValidator;
 import io.github.illuseahashmap.workflow.process.application.WorkflowOperationAuditService;
 import io.github.illuseahashmap.workflow.process.application.dto.CreateProcessDraftRequest;
@@ -20,7 +21,9 @@ import io.github.illuseahashmap.workflow.process.application.dto.PublishProcessR
 import io.github.illuseahashmap.workflow.process.application.dto.RollbackProcessRequest;
 import io.github.illuseahashmap.workflow.process.application.dto.SaveProcessDraftRequest;
 import io.github.illuseahashmap.workflow.process.application.port.AgentTaskBindingParser;
+import io.github.illuseahashmap.workflow.process.domain.CallReference;
 import io.github.illuseahashmap.workflow.process.domain.ProcessRelease;
+import io.github.illuseahashmap.workflow.process.infrastructure.flowable.subprocess.CallActivityDeploymentGuard;
 import io.github.illuseahashmap.workflow.process.domain.ReleaseAction;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipal;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipalProvider;
@@ -76,6 +79,7 @@ class ProcessPublishServiceImplTest {
     private static ProcessEngine engine;
     private ProcessDraftServiceImpl drafts;
     private InMemoryProcessRepositories.Releases releases;
+    private InMemoryProcessRepositories.References callReferences;
     private AssignmentRuleService rules;
     private AgentBindingDeploymentValidator agentValidator;
     private ProcessPublishServiceImpl service;
@@ -109,9 +113,15 @@ class ProcessPublishServiceImplTest {
                         call.getArgument(0), null, call.getArgument(1), null, 0, 0, List.of()));
         agentValidator = mock(AgentBindingDeploymentValidator.class);
         drafts = new ProcessDraftServiceImpl(draftRepository, lookup, inspector, tenant, principal);
+        callReferences = new InMemoryProcessRepositories.References();
+        SubProcessProperties subProcessProperties = new SubProcessProperties();
+        subProcessProperties.setCallActivityEnabled(true);
         var deployer = new ProcessDeployer(engine.getRepositoryService(), releases, inspector,
                 new ScriptTaskDeploymentGuard(new ScriptTaskProperties()),
-                mock(AgentTaskBindingParser.class), agentValidator, principal);
+                new SubProcessDeploymentGuard(subProcessProperties),
+                new CallActivityDeploymentGuard(subProcessProperties, engine.getRepositoryService(), lookup,
+                        callReferences, mock(FlowableParticipantAssignmentCoordinator.class)),
+                callReferences, mock(AgentTaskBindingParser.class), agentValidator, principal);
         service = new ProcessPublishServiceImpl(engine.getRepositoryService(), draftRepository, releases,
                 lookup, inspector, deployer, rules, mock(WorkflowOperationAuditService.class), tenant, principal);
     }
@@ -173,6 +183,35 @@ class ProcessPublishServiceImplTest {
                 .isInstanceOf(BusinessException.class);
         assertThat(definitions("p4")).isZero();
         assertThat(releases.hasAny(TENANT, "p4")).isFalse();
+        verify(agentValidator, never()).validate(anyString(), anyList());
+    }
+
+    @Test
+    void publishingACallActivityRecordsItsReferenceAndBlocksCycles() {
+        service.publishXml("pc", "PC", userTaskXml("pc", "a"));
+        String caller = userTaskXml("pr", "a").replace("<endEvent id=\"e\"/>",
+                "<callActivity id=\"callPc\" calledElement=\"pc\"/><endEvent id=\"e\"/>");
+
+        var published = service.publishXml("pr", "PR", caller);
+
+        assertThat(callReferences.findByDefinition(TENANT, published.processDefinitionId()))
+                .extracting(CallReference::activityId, CallReference::calledKey)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("callPc", "pc"));
+        String backCall = userTaskXml("pc", "a").replace("<endEvent id=\"e\"/>",
+                "<callActivity id=\"callPr\" calledElement=\"pr\"/><endEvent id=\"e\"/>");
+        assertThatThrownBy(() -> service.publishXml("pc", "PC", backCall))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("pc → pr → pc");
+    }
+
+    @Test
+    void subProcessGuardFailureDeploysNothing() {
+        String adhoc = userTaskXml("p9", "a").replace("<endEvent id=\"e\"/>",
+                "<adHocSubProcess id=\"x\"><userTask id=\"y\"/></adHocSubProcess><endEvent id=\"e\"/>");
+        drafts.create(new CreateProcessDraftRequest("p9", "P9", adhoc));
+
+        assertThatThrownBy(() -> service.publish("p9", new PublishProcessRequest(1)))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("not supported");
+        assertThat(definitions("p9")).isZero();
         verify(agentValidator, never()).validate(anyString(), anyList());
     }
 

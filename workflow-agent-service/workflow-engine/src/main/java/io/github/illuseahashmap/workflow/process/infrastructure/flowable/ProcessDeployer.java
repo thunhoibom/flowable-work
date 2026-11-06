@@ -2,8 +2,11 @@ package io.github.illuseahashmap.workflow.process.infrastructure.flowable;
 
 import io.github.illuseahashmap.workflow.process.application.AgentBindingDeploymentValidator;
 import io.github.illuseahashmap.workflow.process.application.port.AgentTaskBindingParser;
+import io.github.illuseahashmap.workflow.process.application.port.CallReferenceRepository;
 import io.github.illuseahashmap.workflow.process.application.port.ProcessReleaseRepository;
+import io.github.illuseahashmap.workflow.process.domain.CallReference;
 import io.github.illuseahashmap.workflow.process.domain.ProcessRelease;
+import io.github.illuseahashmap.workflow.process.infrastructure.flowable.subprocess.CallActivityDeploymentGuard;
 import io.github.illuseahashmap.workflow.process.domain.ReleaseAction;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipal;
 import io.github.illuseahashmap.workflow.shared.context.CurrentPrincipalProvider;
@@ -12,6 +15,7 @@ import io.github.illuseahashmap.workflow.shared.exception.BusinessException;
 import io.github.illuseahashmap.workflow.shared.exception.ErrorCode;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.repository.ProcessDefinition;
@@ -26,12 +30,18 @@ public class ProcessDeployer {
     private final ProcessReleaseRepository releases;
     private final BpmnDraftInspector inspector;
     private final ScriptTaskDeploymentGuard scriptTaskDeploymentGuard;
+    private final SubProcessDeploymentGuard subProcessDeploymentGuard;
+    private final CallActivityDeploymentGuard callActivityDeploymentGuard;
+    private final CallReferenceRepository callReferences;
     private final AgentTaskBindingParser agentTaskBindingParser;
     private final AgentBindingDeploymentValidator agentBindingDeploymentValidator;
     private final CurrentPrincipalProvider principalProvider;
 
     public ProcessDeployer(RepositoryService repositoryService, ProcessReleaseRepository releases,
                            BpmnDraftInspector inspector, ScriptTaskDeploymentGuard scriptTaskDeploymentGuard,
+                           SubProcessDeploymentGuard subProcessDeploymentGuard,
+                           CallActivityDeploymentGuard callActivityDeploymentGuard,
+                           CallReferenceRepository callReferences,
                            AgentTaskBindingParser agentTaskBindingParser,
                            AgentBindingDeploymentValidator agentBindingDeploymentValidator,
                            CurrentPrincipalProvider principalProvider) {
@@ -39,21 +49,30 @@ public class ProcessDeployer {
         this.releases = releases;
         this.inspector = inspector;
         this.scriptTaskDeploymentGuard = scriptTaskDeploymentGuard;
+        this.subProcessDeploymentGuard = subProcessDeploymentGuard;
+        this.callActivityDeploymentGuard = callActivityDeploymentGuard;
+        this.callReferences = callReferences;
         this.agentTaskBindingParser = agentTaskBindingParser;
         this.agentBindingDeploymentValidator = agentBindingDeploymentValidator;
         this.principalProvider = principalProvider;
     }
 
-    /** Every guard, then the deployment. New guards go here, in order. */
+    /** Every guard, then the deployment, then the call references of the new version. */
     public ProcessDefinition deployChecked(TenantContext.TenantInfo tenant, String key, String name, String xml) {
         inspector.check(key, xml);
         scriptTaskDeploymentGuard.check(xml);
+        subProcessDeploymentGuard.check(xml);
+        List<CallActivityDeploymentGuard.Call> calls = callActivityDeploymentGuard.check(tenant, key, xml);
         agentBindingDeploymentValidator.validate(tenant.tenantCode(), agentTaskBindingParser.parse(xml));
-        return deployUnchecked(tenant, key, name, xml);
+        ProcessDefinition definition = deploy(tenant, key, name, xml);
+        callReferences.replaceForDefinition(tenant.tenantId(), definition.getId(), calls.stream()
+                .map(call -> new CallReference(definition.getId(), key, definition.getVersion(),
+                        call.activityId(), call.calledKey()))
+                .toList());
+        return definition;
     }
 
-    /** No guards. Only the migration calls this directly, to keep what is already running. */
-    public ProcessDefinition deployUnchecked(TenantContext.TenantInfo tenant, String key, String name, String xml) {
+    private ProcessDefinition deploy(TenantContext.TenantInfo tenant, String key, String name, String xml) {
         Deployment deployment = repositoryService.createDeployment()
                 .name(StringUtils.hasText(name) ? name : key)
                 .key(key)

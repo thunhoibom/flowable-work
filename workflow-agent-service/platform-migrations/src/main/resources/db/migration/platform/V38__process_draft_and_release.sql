@@ -23,7 +23,7 @@ CREATE TABLE workflow_process_release (
     performed_by           VARCHAR(255) NOT NULL,
     performed_at           TIMESTAMPTZ  NOT NULL,
     CONSTRAINT ck_workflow_process_release_action
-        CHECK (action IN ('PUBLISH', 'ROLLBACK', 'SUSPEND', 'RESUME', 'MIGRATED'))
+        CHECK (action IN ('PUBLISH', 'ROLLBACK', 'SUSPEND', 'RESUME'))
 );
 
 CREATE INDEX ix_workflow_process_release_key

@@ -19,7 +19,7 @@ public interface WorkflowAdministrationService {
 
     PageResult<ProcessInstanceSummaryView> pageProcessInstances(
             Integer pageNum, Integer pageSize, String definitionKey, String definitionName,
-            String processInstanceId, String businessKey, String status);
+            String processInstanceId, String businessKey, String status, boolean rootOnly);
 
     ProcessInstanceDetailView getProcessInstanceDetail(String processInstanceId);
 
@@ -31,4 +31,12 @@ public interface WorkflowAdministrationService {
     void deleteProcessDefinitions(String processDefinitionKey);
 
     void deleteProcessDefinitionVersion(String processDefinitionKey, Integer version);
+
+    /** Published processes that call this key. */
+    java.util.List<io.github.illuseahashmap.workflow.process.application.dto.ProcessReferenceView> callers(
+            String processDefinitionKey);
+
+    /** Processes that a version of this key calls; the latest version when {@code version} is null. */
+    java.util.List<io.github.illuseahashmap.workflow.process.application.dto.ProcessReferenceView> callees(
+            String processDefinitionKey, Integer version);
 }

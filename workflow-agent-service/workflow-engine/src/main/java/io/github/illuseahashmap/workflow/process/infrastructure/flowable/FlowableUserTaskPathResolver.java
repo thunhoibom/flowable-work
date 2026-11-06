@@ -20,6 +20,9 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.flowable.bpmn.model.Activity;
 import org.flowable.bpmn.model.BpmnModel;
+import org.flowable.bpmn.model.CallActivity;
+import org.flowable.bpmn.model.EndEvent;
+import org.flowable.bpmn.model.EventSubProcess;
 import org.flowable.bpmn.model.ExclusiveGateway;
 import org.flowable.bpmn.model.FlowElement;
 import org.flowable.bpmn.model.FlowNode;
@@ -27,6 +30,7 @@ import org.flowable.bpmn.model.Gateway;
 import org.flowable.bpmn.model.InclusiveGateway;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.bpmn.model.StartEvent;
+import org.flowable.bpmn.model.SubProcess;
 import org.flowable.bpmn.model.UserTask;
 import org.flowable.bpmn.model.ExtensionElement;
 import org.flowable.common.engine.impl.el.ExpressionManager;
@@ -121,7 +125,7 @@ public final class FlowableUserTaskPathResolver {
         Set<String> agentWaitStateIds = agentWaitStateIds(processDefinitionId);
         Queue<FlowElement> queue = new ArrayDeque<>();
         for (FlowNode source : sources) {
-            enqueueTargets(queue, selectedOutgoingFlows(source, variables));
+            queue.addAll(targets(selectedOutgoingFlows(source, variables)));
         }
         Set<String> visited = new HashSet<>();
         Map<String, UserTask> results = new LinkedHashMap<>();
@@ -139,9 +143,11 @@ public final class FlowableUserTaskPathResolver {
                 // behind it as start-time participant requirements.
                 continue;
             }
-            if (element instanceof FlowNode flowNode) {
-                enqueueTargets(queue, selectedOutgoingFlows(flowNode, variables));
+            if (element instanceof CallActivity) {
+                // The called process starts its own instance and resolves its own participants.
+                continue;
             }
+            queue.addAll(successors(element, variables));
         }
         return List.copyOf(results.values());
     }
@@ -151,7 +157,7 @@ public final class FlowableUserTaskPathResolver {
         Set<String> agentWaitStateIds = agentWaitStateIds(processDefinitionId);
         Queue<FlowElement> queue = new ArrayDeque<>();
         for (FlowNode source : sources) {
-            enqueueTargets(queue, selectedOutgoingFlows(source, variables));
+            queue.addAll(targets(selectedOutgoingFlows(source, variables)));
         }
         Set<String> visited = new HashSet<>();
         Map<String, FlowElement> results = new LinkedHashMap<>();
@@ -167,11 +173,46 @@ public final class FlowableUserTaskPathResolver {
                 results.putIfAbsent(element.getId(), element);
                 continue;
             }
-            if (element instanceof FlowNode flowNode) {
-                enqueueTargets(queue, selectedOutgoingFlows(flowNode, variables));
+            if (element instanceof CallActivity) {
+                continue;
             }
+            queue.addAll(successors(element, variables));
         }
         return List.copyOf(results.values());
+    }
+
+    /**
+     * The next elements on the normal path. An embedded subprocess is entered through its none
+     * start event and left through its end events. Event subprocesses have no incoming flow, so
+     * they are never reached.
+     */
+    private List<FlowElement> successors(FlowElement element, Map<String, Object> variables) {
+        if (element instanceof SubProcess subProcess && isEmbedded(subProcess)) {
+            return subProcess.getFlowElements().stream()
+                    .filter(StartEvent.class::isInstance)
+                    .map(StartEvent.class::cast)
+                    .filter(start -> start.getEventDefinitions().isEmpty())
+                    .map(FlowElement.class::cast)
+                    .toList();
+        }
+        if (element instanceof EndEvent && isEmbedded(element.getSubProcess())) {
+            return targets(selectedOutgoingFlows(element.getSubProcess(), variables));
+        }
+        if (element instanceof FlowNode node) {
+            return targets(selectedOutgoingFlows(node, variables));
+        }
+        return List.of();
+    }
+
+    private static boolean isEmbedded(SubProcess subProcess) {
+        return subProcess != null && !(subProcess instanceof EventSubProcess);
+    }
+
+    private static List<FlowElement> targets(Collection<SequenceFlow> flows) {
+        return flows.stream()
+                .map(SequenceFlow::getTargetFlowElement)
+                .filter(java.util.Objects::nonNull)
+                .toList();
     }
 
     private List<FlowNode> startEvents(BpmnModel model) {
@@ -298,13 +339,6 @@ public final class FlowableUserTaskPathResolver {
             throw new BusinessException(ErrorCode.BAD_REQUEST,
                     "Gateway condition cannot be evaluated for flow " + flow.getId(), exception);
         }
-    }
-
-    private void enqueueTargets(Queue<FlowElement> queue, Collection<SequenceFlow> flows) {
-        flows.stream()
-                .map(SequenceFlow::getTargetFlowElement)
-                .filter(java.util.Objects::nonNull)
-                .forEach(queue::add);
     }
 
     private boolean isAgentWaitState(FlowElement element) {

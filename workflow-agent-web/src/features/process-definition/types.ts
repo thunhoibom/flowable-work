@@ -72,10 +72,19 @@ export interface PublishProcessResult extends DeployProcessResult {
 
 export interface ProcessRelease {
   version: number
-  action: 'PUBLISH' | 'ROLLBACK' | 'SUSPEND' | 'RESUME' | 'MIGRATED'
+  action: 'PUBLISH' | 'ROLLBACK' | 'SUSPEND' | 'RESUME'
   sourceVersion?: number
   performedBy: string
   performedAt: string
+}
+
+/** One call activity link: the caller for "where used", the callee for "calls". */
+export interface ProcessReference {
+  processDefinitionKey: string
+  processDefinitionName?: string
+  version?: number
+  activityId: string
+  published: boolean
 }
 
 export interface DefinitionPageQuery {

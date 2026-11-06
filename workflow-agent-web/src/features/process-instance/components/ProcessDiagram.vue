@@ -4,11 +4,13 @@ import BpmnViewer from 'bpmn-js/lib/NavigatedViewer'
 import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
-import type { BpmnModelerInstance, Canvas } from '@/bpmn/modeler-types'
+import type { BpmnModelerInstance, Canvas, ElementRegistry } from '@/bpmn/modeler-types'
+import { enclosingSubProcessIds } from '../diagramMarkers'
 import { formatDateTime, formatDuration } from '@/utils/format'
 import type { ActivityDetail, ProcessDiagramData } from '../types'
 
 const props = defineProps<{ data?: ProcessDiagramData }>()
+const emit = defineEmits<{ select: [activityId: string] }>()
 const host = ref<HTMLDivElement>()
 const viewer = shallowRef<BpmnModelerInstance>()
 const hover = ref<{ detail: ActivityDetail; x: number; y: number }>()
@@ -33,6 +35,11 @@ async function render() {
   canvas.resized()
   props.data.completedActivityIds.forEach((id) => canvas.addMarker(id, 'activity-completed'))
   props.data.activeActivityIds.forEach((id) => canvas.addMarker(id, 'activity-active'))
+  // A collapsed subprocess hides its children on another plane: mark the container as well.
+  const registry = nextViewer.get('elementRegistry') as ElementRegistry
+  enclosingSubProcessIds(props.data.activeActivityIds, (id) => registry.get(id)?.businessObject)
+    .filter((id) => !props.data?.activeActivityIds.includes(id))
+    .forEach((id) => canvas.addMarker(id, 'activity-active'))
   props.data.highlightedFlows.forEach((id) => canvas.addMarker(id, 'flow-completed'))
   canvas.zoom('fit-viewport', 'auto')
   viewer.value.on('element.hover', (event) => {
@@ -51,6 +58,9 @@ async function render() {
     }
   })
   viewer.value.on('element.out', () => (hover.value = undefined))
+  viewer.value.on('element.click', (event) => {
+    if (event.element?.id) emit('select', event.element.id)
+  })
 }
 
 watch(() => props.data, render, { immediate: true })

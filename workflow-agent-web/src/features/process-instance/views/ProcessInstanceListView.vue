@@ -30,6 +30,7 @@ const query = reactive({
   processInstanceId: '',
   businessKey: '',
   status: 'all' as 'all' | 'running' | 'finished',
+  rootOnly: true,
   pageNum: 1,
   pageSize: 20,
 })
@@ -70,9 +71,15 @@ function reset() {
     processInstanceId: '',
     businessKey: '',
     status: 'all',
+    rootOnly: true,
     pageNum: 1,
   })
   applied.value = { ...query }
+}
+
+function toggleChildren(show: string | number | boolean) {
+  query.rootOnly = !show
+  search()
 }
 
 function changePage(pageNum: number, pageSize: number) {
@@ -82,12 +89,16 @@ function changePage(pageNum: number, pageSize: number) {
 }
 
 async function terminate(id: string) {
-  const reason = await promptRequired('Hãy nhập lý do. Không hoàn tác được.', 'Kết thúc công việc', {
-    confirmButtonText: 'Kết thúc',
-    cancelButtonText: 'Hủy',
-    inputPattern: /\S+/,
-    inputErrorMessage: 'Lý do kết thúc không được để trống',
-  })
+  const reason = await promptRequired(
+    'Hãy nhập lý do. Không hoàn tác được.',
+    'Kết thúc công việc',
+    {
+      confirmButtonText: 'Kết thúc',
+      cancelButtonText: 'Hủy',
+      inputPattern: /\S+/,
+      inputErrorMessage: 'Lý do kết thúc không được để trống',
+    },
+  )
   if (!reason) return
   terminateMutation.mutate({ id, reason })
 }
@@ -142,6 +153,14 @@ function handleStarted(result: StartProcessResult) {
               value="running" /><el-option label="Đã xong" value="finished"
           /></el-select>
         </el-form-item>
+        <el-form-item label="Quy trình con">
+          <el-switch
+            :model-value="!query.rootOnly"
+            active-text="Hiện"
+            inactive-text="Ẩn"
+            @update:model-value="toggleChildren"
+          />
+        </el-form-item>
         <el-form-item class="filter-form__actions"
           ><el-button type="primary" native-type="submit"><Search :size="16" />Tìm</el-button
           ><el-button @click="reset"><RefreshCw :size="16" />Đặt lại</el-button></el-form-item
@@ -161,19 +180,36 @@ function handleStarted(result: StartProcessResult) {
           min-width="160"
           show-overflow-tooltip
         />
-        <el-table-column
-          prop="processDefinitionName"
-          label="Tên quy trình"
-          min-width="170"
-          show-overflow-tooltip
-        />
+        <el-table-column label="Tên quy trình" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.processDefinitionName }}
+            <el-button
+              v-if="row.superProcessInstanceId"
+              link
+              size="small"
+              type="info"
+              @click="
+                router.push({
+                  name: 'process-instance-detail',
+                  params: { id: row.superProcessInstanceId },
+                })
+              "
+              >↳ quy trình con</el-button
+            >
+          </template>
+        </el-table-column>
         <el-table-column
           prop="processInstanceId"
           label="Mã công việc"
           min-width="220"
           show-overflow-tooltip
         />
-        <el-table-column prop="startUserId" label="Người bắt đầu" width="120" show-overflow-tooltip />
+        <el-table-column
+          prop="startUserId"
+          label="Người bắt đầu"
+          width="120"
+          show-overflow-tooltip
+        />
         <el-table-column label="Trạng thái" width="110" align="center" header-align="center"
           ><template #default="{ row }"
             ><StatusBadge :status="row.status === 'RUNNING' ? 'RUNNING' : 'COMPLETED'" /></template
@@ -202,7 +238,7 @@ function handleStarted(result: StartProcessResult) {
               ><Eye :size="15" />Chi tiết</el-button
             >
             <el-button
-              v-if="canOperateInstances && row.status === 'RUNNING'"
+              v-if="canOperateInstances && row.status === 'RUNNING' && !row.superProcessInstanceId"
               link
               type="danger"
               @click="terminate(row.processInstanceId)"

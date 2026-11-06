@@ -40,7 +40,30 @@ const flowableModdle = {
       ],
     },
     {
+      name: 'CallActivity',
+      extends: ['bpmn:CallActivity'],
+      properties: [
+        { name: 'calledElementType', isAttr: true, type: 'String' },
+        { name: 'businessKey', isAttr: true, type: 'String' },
+        { name: 'inheritBusinessKey', isAttr: true, type: 'Boolean' },
+        { name: 'idVariableName', isAttr: true, type: 'String' },
+        { name: 'completeAsync', isAttr: true, type: 'Boolean' },
+        { name: 'processInstanceName', isAttr: true, type: 'String' },
+        { name: 'useLocalScopeForOutParameters', isAttr: true, type: 'Boolean' },
+        { name: 'async', isAttr: true, type: 'Boolean' },
+      ],
+    },
+    {
       name: 'In',
+      superClass: ['Element'],
+      properties: [
+        { name: 'source', isAttr: true, type: 'String' },
+        { name: 'sourceExpression', isAttr: true, type: 'String' },
+        { name: 'target', isAttr: true, type: 'String' },
+      ],
+    },
+    {
+      name: 'Out',
       superClass: ['Element'],
       properties: [
         { name: 'source', isAttr: true, type: 'String' },

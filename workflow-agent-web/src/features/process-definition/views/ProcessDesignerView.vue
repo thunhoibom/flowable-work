@@ -22,6 +22,11 @@ import { agentsEnabled } from '@/config/product'
 import flowableModdle from '@/bpmn/flowableModdle'
 import workflowModdle from '@/bpmn/workflowModdle'
 import workflowPaletteModule from '@/bpmn/workflowPaletteModule'
+import workflowReplaceMenuModule from '@/bpmn/workflowReplaceMenuModule'
+import { eventKind, isEventSubProcess } from '@/bpmn/subProcessModel'
+import SubProcessConfigPanel from '../components/SubProcessConfigPanel.vue'
+import EventDefinitionConfigPanel from '../components/EventDefinitionConfigPanel.vue'
+import CallActivityConfigPanel from '../components/CallActivityConfigPanel.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import AgentTaskConfigPanel from '../components/AgentTaskConfigPanel.vue'
 import ServiceCallConfigPanel from '@/features/service-registry/ServiceCallConfigPanel.vue'
@@ -66,7 +71,7 @@ import { formatDateTime, formatVersion } from '@/utils/format'
 import { definitionApi } from '../api'
 import { normalizeProcessIdentity } from '../domain'
 import { designerStatus, isDraftConflict } from '../draftState'
-import type { ProcessDefinition, ProcessDraft } from '../types'
+import type { ProcessDefinition, ProcessDraft, ProcessReference } from '../types'
 
 const DEFAULT_ASSIGNEE = '${assigneeService.getAssignee(execution)}'
 const DEFAULT_CANDIDATE_USERS = '${assigneeService.getCandidates(execution)}'
@@ -96,6 +101,9 @@ const versions = ref<ProcessDefinition[]>([])
 const draft = ref<ProcessDraft>()
 /** Undefined while editing the draft; a version number while viewing that version read-only. */
 const viewingVersion = ref<number>()
+/** Published processes that call this one, and processes this one calls. */
+const callers = ref<ProcessReference[]>([])
+const callees = ref<ProcessReference[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const publishing = ref(false)
@@ -156,10 +164,17 @@ const isTask = computed(() =>
   ].includes(selectedType.value),
 )
 const isSequenceFlow = computed(() => selectedType.value === 'bpmn:SequenceFlow')
+const isSubProcess = computed(() => selectedType.value === 'bpmn:SubProcess')
+const isCallActivity = computed(() => selectedType.value === 'bpmn:CallActivity')
+const hasEditableEvent = computed(() => Boolean(eventKind(selectedBusinessObject.value)))
 const status = computed(() => (draft.value ? designerStatus(draft.value) : undefined))
 const readOnly = computed(() => viewingVersion.value !== undefined)
 const DRAFT_OPTION = 0
-const elementTypeLabel = computed(() => getElementTypeLabel(selectedType.value))
+const elementTypeLabel = computed(() =>
+  isEventSubProcess(selectedBusinessObject.value)
+    ? 'Quy trình con sự kiện'
+    : getElementTypeLabel(selectedType.value),
+)
 const selectedSource = computed(() => selectedBusinessObject.value?.sourceRef?.id || '')
 const selectedTarget = computed(() => selectedBusinessObject.value?.targetRef?.id || '')
 const selectedAgentVersion = computed(() =>
@@ -220,6 +235,9 @@ function getElementTypeLabel(type: string) {
     'bpmn:InclusiveGateway': 'Rẽ nhiều nhánh',
     'bpmn:SequenceFlow': 'Đường đi',
     'bpmn:SubProcess': 'Quy trình con',
+    'bpmn:BoundaryEvent': 'Sự kiện gắn biên',
+    'bpmn:CallActivity': 'Gọi quy trình',
+    'bpmn:IntermediateCatchEvent': 'Chờ sự kiện',
   }
   return labels[type] || type || '-'
 }
@@ -897,6 +915,7 @@ async function loadProcess(key: string) {
     ])
     draft.value = loadedDraft
     versions.value = loadedVersions.sort((a, b) => b.version - a.version)
+    void loadReferences(key)
     viewingVersion.value = undefined
     processForm.key = loadedDraft.processDefinitionKey
     processForm.name = loadedDraft.name
@@ -1026,9 +1045,32 @@ async function runAndReload(action: () => Promise<unknown>, message: string) {
   }
 }
 
+/** Call activity links. Failing to load them never blocks editing. */
+async function loadReferences(key: string) {
+  const [loadedCallers, loadedCallees] = await Promise.all([
+    definitionApi.callers(key).catch(() => [] as ProcessReference[]),
+    definitionApi.callees(key).catch(() => [] as ProcessReference[]),
+  ])
+  callers.value = loadedCallers
+  callees.value = loadedCallees
+}
+
+function openProcess(key: string) {
+  const target = router.resolve({ name: 'process-designer', query: { key } })
+  window.open(target.href, '_blank', 'noopener')
+}
+
 async function suspendProcess() {
+  const callerNames = [
+    ...new Set(
+      callers.value.map((item) => item.processDefinitionName || item.processDefinitionKey),
+    ),
+  ]
+  const impact = callerNames.length
+    ? ` Các quy trình đang gọi tới sẽ lỗi ở bước gọi: ${callerNames.join(', ')}.`
+    : ''
   const confirmed = await confirmAction(
-    'Ngừng phát hành? Không ai bắt đầu mới được. Việc đang chạy vẫn tiếp tục.',
+    `Ngừng phát hành? Không ai bắt đầu mới được. Việc đang chạy vẫn tiếp tục.${impact}`,
     'Ngừng phát hành',
     { confirmButtonText: 'Ngừng', cancelButtonText: 'Hủy', type: 'warning' },
   )
@@ -1383,7 +1425,7 @@ onMounted(async () => {
   if (!canvasElement.value) return
   modeler.value = new BpmnModeler({
     container: canvasElement.value,
-    additionalModules: [workflowPaletteModule],
+    additionalModules: [workflowPaletteModule, workflowReplaceMenuModule],
     moddleExtensions: { flowable: flowableModdle, workflow: workflowModdle },
   })
   modeler.value.on('selection.changed', (event) => resetSelection(event.newSelection?.[0]))
@@ -1594,6 +1636,42 @@ watch(viewingVersion, () => resetSelection())
           </div>
         </section>
 
+        <section v-if="callers.length || callees.length" class="inspector-card">
+          <div class="inspector-heading">
+            <div>
+              <h2>Liên kết quy trình</h2>
+              <p>Các bước "Gọi quy trình" nối quy trình này với quy trình khác.</p>
+            </div>
+          </div>
+          <div v-if="callers.length" class="property-block">
+            <strong>Được dùng ở đâu</strong>
+            <ul class="reference-list">
+              <li v-for="item in callers" :key="`${item.processDefinitionKey}-${item.activityId}`">
+                <el-button link type="primary" @click="openProcess(item.processDefinitionKey)">
+                  {{ item.processDefinitionName || item.processDefinitionKey }}
+                </el-button>
+                <small>{{ formatVersion(item.version) }} · bước {{ item.activityId }}</small>
+              </li>
+            </ul>
+          </div>
+          <div v-if="callees.length" class="property-block">
+            <strong>Gọi tới</strong>
+            <ul class="reference-list">
+              <li v-for="item in callees" :key="`${item.processDefinitionKey}-${item.activityId}`">
+                <el-button link type="primary" @click="openProcess(item.processDefinitionKey)">
+                  {{ item.processDefinitionName || item.processDefinitionKey }}
+                </el-button>
+                <small>
+                  bước {{ item.activityId }} ·
+                  {{
+                    item.published ? `đang chạy ${formatVersion(item.version)}` : 'không phát hành'
+                  }}
+                </small>
+              </li>
+            </ul>
+          </div>
+        </section>
+
         <section class="inspector-card element-card">
           <div class="inspector-heading">
             <div>
@@ -1669,6 +1747,25 @@ watch(viewingVersion, () => resetSelection())
               @update:input-rows="serviceInputRows = $event"
               @update:output-rows="serviceOutputRows = $event"
               @apply="applyServiceCall"
+            />
+
+            <SubProcessConfigPanel
+              v-if="isSubProcess && selectedElement && modeler"
+              :element="selectedElement"
+              :modeler="modeler"
+            />
+
+            <EventDefinitionConfigPanel
+              v-if="hasEditableEvent && selectedElement && modeler"
+              :element="selectedElement"
+              :modeler="modeler"
+            />
+
+            <CallActivityConfigPanel
+              v-if="isCallActivity && selectedElement && modeler"
+              :element="selectedElement"
+              :modeler="modeler"
+              :current-key="processForm.key"
             />
 
             <ScriptTaskConfigPanel

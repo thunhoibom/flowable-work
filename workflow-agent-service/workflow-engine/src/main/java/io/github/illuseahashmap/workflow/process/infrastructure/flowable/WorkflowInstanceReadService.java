@@ -4,8 +4,10 @@ import io.github.illuseahashmap.workflow.process.application.ProcessVariablePoli
 import io.github.illuseahashmap.workflow.assignment.application.AssignmentRuleService;
 import io.github.illuseahashmap.workflow.assignment.domain.AssignmentTargetType;
 import io.github.illuseahashmap.workflow.assignment.domain.NodeAssignmentRule;
+import io.github.illuseahashmap.workflow.process.application.dto.ChildProcessInstanceView;
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessDiagramDataView;
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessInstanceDetailView;
+import io.github.illuseahashmap.workflow.process.application.dto.ProcessInstanceLinkView;
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessInstanceSummaryView;
 import io.github.illuseahashmap.workflow.shared.context.TenantProvider;
 import io.github.illuseahashmap.workflow.shared.exception.BusinessException;
@@ -51,6 +53,9 @@ import org.springframework.util.StringUtils;
 
 @Component
 class WorkflowInstanceReadService {
+
+    /** Longer than any chain max-call-depth allows. */
+    private static final int MAX_ANCESTORS = 32;
 
     private final RepositoryService repositoryService;
     private final RuntimeService runtimeService;
@@ -116,14 +121,15 @@ class WorkflowInstanceReadService {
 
     PageResult<ProcessInstanceSummaryView> page(
             Integer pageNum, Integer pageSize, String definitionKey, String definitionName,
-            String processInstanceId, String businessKey, String status) {
+            String processInstanceId, String businessKey, String status, boolean rootOnly) {
         int normalizedPage = normalizePage(pageNum);
         int normalizedSize = normalizeSize(pageSize);
         int firstResult = (normalizedPage - 1) * normalizedSize;
         String tenantId = tenantProvider.current().tenantId();
-        long total = buildQuery(tenantId, definitionKey, definitionName, processInstanceId, businessKey, status).count();
+        long total = buildQuery(tenantId, definitionKey, definitionName, processInstanceId, businessKey, status,
+                rootOnly).count();
         List<HistoricProcessInstance> instances = buildQuery(
-                tenantId, definitionKey, definitionName, processInstanceId, businessKey, status)
+                tenantId, definitionKey, definitionName, processInstanceId, businessKey, status, rootOnly)
                 .orderByProcessInstanceStartTime().desc()
                 .listPage(firstResult, normalizedSize);
         Set<String> definitionIds = instances.stream().map(HistoricProcessInstance::getProcessDefinitionId)
@@ -152,7 +158,88 @@ class WorkflowInstanceReadService {
                 .collect(Collectors.toMap(ProcessDefinition::getId, Function.identity()));
         HistoricTaskInstance latestTask = tasksForInstance(processInstanceId).stream().findFirst().orElse(null);
         return new ProcessInstanceDetailView(
-                toSummary(instance, definitions, latestTask), tasks, queryVariables(processInstanceId));
+                toSummary(instance, definitions, latestTask), tasks, queryVariables(processInstanceId),
+                ancestors(instance), callActivityOf(instance), children(processInstanceId));
+    }
+
+    /** Root first. Capped so a corrupt chain can never loop. */
+    private List<ProcessInstanceLinkView> ancestors(HistoricProcessInstance instance) {
+        List<HistoricProcessInstance> chain = new ArrayList<>();
+        String parentId = instance.getSuperProcessInstanceId();
+        while (StringUtils.hasText(parentId) && chain.size() < MAX_ANCESTORS) {
+            HistoricProcessInstance parent = historyService.createHistoricProcessInstanceQuery()
+                    .processInstanceTenantId(instance.getTenantId())
+                    .processInstanceId(parentId)
+                    .singleResult();
+            if (parent == null) {
+                break;
+            }
+            chain.addFirst(parent);
+            parentId = parent.getSuperProcessInstanceId();
+        }
+        Map<String, ProcessDefinition> definitions = definitionsOf(chain);
+        return chain.stream().map(parent -> {
+            ProcessDefinition definition = definitions.get(parent.getProcessDefinitionId());
+            return new ProcessInstanceLinkView(parent.getId(),
+                    definition == null ? null : definition.getKey(),
+                    definition == null ? null : definition.getName(),
+                    parent.getBusinessKey(), statusOf(parent));
+        }).toList();
+    }
+
+    private String callActivityOf(HistoricProcessInstance instance) {
+        if (!StringUtils.hasText(instance.getSuperProcessInstanceId())) {
+            return null;
+        }
+        return historyService.createHistoricActivityInstanceQuery()
+                .processInstanceId(instance.getSuperProcessInstanceId())
+                .activityType("callActivity")
+                .list().stream()
+                .filter(activity -> instance.getId().equals(activity.getCalledProcessInstanceId()))
+                .map(HistoricActivityInstance::getActivityId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private List<ChildProcessInstanceView> children(String processInstanceId) {
+        String tenantId = tenantProvider.current().tenantId();
+        List<HistoricProcessInstance> children = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceTenantId(tenantId)
+                .superProcessInstanceId(processInstanceId)
+                .orderByProcessInstanceStartTime().asc()
+                .list();
+        if (children.isEmpty()) {
+            return List.of();
+        }
+        Map<String, HistoricActivityInstance> callers = historyService.createHistoricActivityInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .activityType("callActivity")
+                .list().stream()
+                .filter(activity -> activity.getCalledProcessInstanceId() != null)
+                .collect(Collectors.toMap(HistoricActivityInstance::getCalledProcessInstanceId,
+                        Function.identity(), (left, right) -> left));
+        Map<String, ProcessDefinition> definitions = definitionsOf(children);
+        Map<String, HistoricTaskInstance> latestTasks = latestTasks(children);
+        return children.stream().map(child -> {
+            HistoricActivityInstance caller = callers.get(child.getId());
+            return new ChildProcessInstanceView(
+                    caller == null ? null : caller.getActivityId(),
+                    caller == null ? null : caller.getActivityName(),
+                    toSummary(child, definitions, latestTasks.get(child.getId())));
+        }).toList();
+    }
+
+    private Map<String, ProcessDefinition> definitionsOf(List<HistoricProcessInstance> instances) {
+        Set<String> ids = instances.stream().map(HistoricProcessInstance::getProcessDefinitionId)
+                .collect(Collectors.toSet());
+        return ids.isEmpty() ? Map.of()
+                : repositoryService.createProcessDefinitionQuery().processDefinitionIds(ids).list().stream()
+                        .collect(Collectors.toMap(ProcessDefinition::getId, Function.identity()));
+    }
+
+    private static String statusOf(HistoricProcessInstance instance) {
+        return instance.getEndTime() == null ? "RUNNING"
+                : StringUtils.hasText(instance.getDeleteReason()) ? "TERMINATED" : "FINISHED";
     }
 
     private Map<String, HistoricTaskInstance> latestTasks(List<HistoricProcessInstance> instances) {
@@ -257,9 +344,12 @@ class WorkflowInstanceReadService {
 
     private HistoricProcessInstanceQuery buildQuery(
             String tenantId, String definitionKey, String definitionName,
-            String processInstanceId, String businessKey, String status) {
+            String processInstanceId, String businessKey, String status, boolean rootOnly) {
         HistoricProcessInstanceQuery query = historyService.createHistoricProcessInstanceQuery()
                 .processInstanceTenantId(tenantId);
+        if (rootOnly) {
+            query.excludeSubprocesses(true);
+        }
         if (StringUtils.hasText(definitionKey)) {
             query.processDefinitionKeyLike("%" + definitionKey.trim() + "%");
         }
@@ -289,8 +379,7 @@ class WorkflowInstanceReadService {
         Date lastUpdateTime = latestTask == null
                 ? (instance.getEndTime() == null ? instance.getStartTime() : instance.getEndTime())
                 : taskTimestamp(latestTask);
-        String status = instance.getEndTime() == null ? "RUNNING"
-                : StringUtils.hasText(instance.getDeleteReason()) ? "TERMINATED" : "FINISHED";
+        String status = statusOf(instance);
         return new ProcessInstanceSummaryView(
                 instance.getId(), instance.getProcessDefinitionId(),
                 definition == null ? null : definition.getKey(),
@@ -299,7 +388,7 @@ class WorkflowInstanceReadService {
                 latestTask == null ? null : latestTask.getId(), instance.getBusinessKey(), instance.getStartUserId(),
                 toOffsetDateTime(instance.getStartTime()), toOffsetDateTime(instance.getEndTime()),
                 toOffsetDateTime(lastUpdateTime), instance.getDurationInMillis(),
-                instance.getDeleteReason(), status, instance.getTenantId());
+                instance.getDeleteReason(), status, instance.getTenantId(), instance.getSuperProcessInstanceId());
     }
 
     private ProcessInstanceDetailView.TaskItem toTaskItem(

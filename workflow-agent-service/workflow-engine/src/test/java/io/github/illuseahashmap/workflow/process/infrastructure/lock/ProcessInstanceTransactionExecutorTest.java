@@ -18,7 +18,7 @@ class ProcessInstanceTransactionExecutorTest {
         List<String> events = new ArrayList<>();
         ProcessInstanceLock lock = new RecordingLock(events);
         ProcessInstanceTransactionExecutor executor = new ProcessInstanceTransactionExecutor(
-                lock, new RecordingTransactionManager(events));
+                lock, new RecordingTransactionManager(events), id -> id);
 
         String result = executor.execute("process-1", () -> {
             events.add("operation");
@@ -26,15 +26,31 @@ class ProcessInstanceTransactionExecutorTest {
         });
 
         assertThat(result).isEqualTo("done");
-        assertThat(events).containsExactly("lock-acquired", "transaction-begin", "operation",
+        assertThat(events).containsExactly("lock-acquired:process-1", "transaction-begin", "operation",
                 "transaction-commit", "lock-released");
+    }
+
+    @Test
+    void locksTheRootInstanceSoParentAndChildCommandsDoNotOverlap() {
+        List<String> events = new ArrayList<>();
+        ProcessInstanceTransactionExecutor executor = new ProcessInstanceTransactionExecutor(
+                new RecordingLock(events), new RecordingTransactionManager(events),
+                id -> "child-1".equals(id) ? "root-1" : id);
+
+        executor.execute("child-1", () -> {
+            events.add("rootInMdc:" + org.slf4j.MDC.get("rootProcessInstanceId"));
+            return null;
+        });
+
+        assertThat(events).contains("lock-acquired:root-1", "rootInMdc:root-1");
+        assertThat(org.slf4j.MDC.get("rootProcessInstanceId")).isNull();
     }
 
     private record RecordingLock(List<String> events) implements ProcessInstanceLock {
 
         @Override
         public <T> T execute(String processInstanceId, Supplier<T> operation) {
-            events.add("lock-acquired");
+            events.add("lock-acquired:" + processInstanceId);
             try {
                 return operation.get();
             } finally {
