@@ -26,6 +26,9 @@ flowable:
   database-schema-update: false
   async-executor-activate: true
   check-process-definitions: false
+  eventregistry:
+    enable-change-detection: true
+    change-detection-delay: 10s
 
 workflow:
   agent:
@@ -60,7 +63,7 @@ workflow:
     max-bpmn-bytes: ${WORKFLOW_DEFINITION_MAX_BPMN_BYTES:2097152}
   subprocess:
     max-nesting-depth: ${WORKFLOW_SUBPROCESS_MAX_NESTING_DEPTH:3}
-    call-activity-enabled: ${WORKFLOW_SUBPROCESS_CALL_ACTIVITY_ENABLED:false}
+    call-activity-enabled: ${WORKFLOW_SUBPROCESS_CALL_ACTIVITY_ENABLED:true}
     max-call-depth: ${WORKFLOW_SUBPROCESS_MAX_CALL_DEPTH:5}
     max-io-parameters: ${WORKFLOW_SUBPROCESS_MAX_IO_PARAMETERS:64}
   script-task:
@@ -71,6 +74,8 @@ workflow:
     max-memory-bytes: ${WORKFLOW_SCRIPT_TASK_MAX_MEMORY_BYTES:8388608}
     max-stack-depth: ${WORKFLOW_SCRIPT_TASK_MAX_STACK_DEPTH:64}
     instruction-check-interval: ${WORKFLOW_SCRIPT_TASK_INSTRUCTION_CHECK_INTERVAL:100}
+  event-registry:
+    enabled: ${WORKFLOW_EVENT_REGISTRY_ENABLED:false}
   runtime:
     environment: ${WORKFLOW_ENV:production}
   lock:

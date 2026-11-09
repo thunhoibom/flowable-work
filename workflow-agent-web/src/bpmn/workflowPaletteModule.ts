@@ -26,7 +26,7 @@ interface BpmnFactory {
   create(type: string, attrs?: Record<string, unknown>): unknown
 }
 
-class WorkflowPaletteProvider {
+export class WorkflowPaletteProvider {
   static $inject = ['palette', 'create', 'elementFactory', 'bpmnFactory']
 
   constructor(
@@ -53,6 +53,19 @@ class WorkflowPaletteProvider {
           dragstart: createUserTask,
           click: createUserTask,
         },
+      }
+
+      const createWaitTask = (event: Event) => {
+        const businessObject = this.bpmnFactory.create('bpmn:ReceiveTask', { asyncLeave: true })
+        const shape = this.elementFactory.createShape({ type: 'bpmn:ReceiveTask', businessObject })
+        this.create.start(event, shape)
+      }
+
+      entries['create.wait-task'] = {
+        group: 'activity',
+        className: 'bpmn-icon-receive-task',
+        title: 'Thêm bước chờ',
+        action: { dragstart: createWaitTask, click: createWaitTask },
       }
 
       const createScriptTask = (event: Event) => {

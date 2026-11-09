@@ -8,9 +8,11 @@ import type {
   CompleteTaskResult,
   ParticipantRequirement,
   ProcessInteraction,
+  ProcessWait,
   RejectTaskRequest,
   StartProcessRequest,
   StartProcessResult,
+  TriggerReceiveTaskRequest,
 } from './types'
 
 const ROOT = '/workflow/management/process'
@@ -53,6 +55,12 @@ export const processInstanceApi = {
     }),
   terminate: (processInstanceId: string, reason: string) =>
     apiClient.post<void>(`${ROOT}/instance/terminate`, { processInstanceId, reason }),
+  waits: (processInstanceId: string) =>
+    apiClient.get<ProcessWait[]>(
+      `${ROOT}/instance/${encodeURIComponent(processInstanceId)}/waits`,
+    ),
+  triggerReceiveTask: (payload: TriggerReceiveTaskRequest) =>
+    apiClient.post<void>(`${ROOT}/instance/receive-task/trigger`, payload),
   approve: (payload: CompleteTaskRequest) =>
     apiClient.post<CompleteTaskResult>('/workflow/task/approve', payload),
   taskInteraction: (payload: { taskId: string; variables: Record<string, unknown> }) =>

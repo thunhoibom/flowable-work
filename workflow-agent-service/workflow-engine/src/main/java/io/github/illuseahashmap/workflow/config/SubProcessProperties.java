@@ -10,7 +10,7 @@ public class SubProcessProperties {
     private int maxNestingDepth = 3;
 
     /** Whether a published process may contain a call activity. Deployed ones always run guarded. */
-    private boolean callActivityEnabled = false;
+    private boolean callActivityEnabled = true;
 
     /** Longest chain of processes calling one another, the root included. */
     private int maxCallDepth = 5;

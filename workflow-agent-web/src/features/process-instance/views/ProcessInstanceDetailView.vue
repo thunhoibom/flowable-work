@@ -23,6 +23,7 @@ import {
 import ProcessDiagram from '../components/ProcessDiagram.vue'
 import InteractionDataFields from '../components/InteractionDataFields.vue'
 import ParticipantAssignmentEditor from '../components/ParticipantAssignmentEditor.vue'
+import ProcessWaitsPanel from '../components/ProcessWaitsPanel.vue'
 import { processInstanceApi } from '../api'
 import {
   buildInteractionVariables,
@@ -350,6 +351,15 @@ async function confirmDecision() {
             :data="diagramQuery.data.value"
             @select="openChildOf"
         /></el-tab-pane>
+        <el-tab-pane v-if="instance?.status === 'RUNNING'" label="Đang chờ" name="waits">
+          <ProcessWaitsPanel
+            v-if="activeTab === 'waits'"
+            :process-instance-id="id"
+            :tenant-code="tenantCode"
+            :can-operate="canOperateInstances"
+            @triggered="refresh"
+          />
+        </el-tab-pane>
         <el-tab-pane
           v-if="children.length"
           :label="`Quy trình con (${children.length})`"

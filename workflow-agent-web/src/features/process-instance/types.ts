@@ -170,3 +170,20 @@ export interface CompleteTaskResult {
   processEnded: boolean
   nextTasks: RuntimeTask[]
 }
+
+/** A step the instance is waiting at. Only manual wait steps for now. */
+export interface ProcessWait {
+  kind: 'MANUAL'
+  activityId: string
+  activityName?: string
+  executionId: string
+  since?: string
+}
+
+export interface TriggerReceiveTaskRequest {
+  processInstanceId: string
+  activityId: string
+  executionId?: string
+  variables?: Record<string, unknown>
+  reason: string
+}

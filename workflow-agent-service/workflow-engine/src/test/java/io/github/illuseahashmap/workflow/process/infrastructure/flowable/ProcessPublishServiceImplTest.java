@@ -121,6 +121,7 @@ class ProcessPublishServiceImplTest {
                 new SubProcessDeploymentGuard(subProcessProperties),
                 new CallActivityDeploymentGuard(subProcessProperties, engine.getRepositoryService(), lookup,
                         callReferences, mock(FlowableParticipantAssignmentCoordinator.class)),
+                new EventRegistryDeploymentGuard(),
                 callReferences, mock(AgentTaskBindingParser.class), agentValidator, principal);
         service = new ProcessPublishServiceImpl(engine.getRepositoryService(), draftRepository, releases,
                 lookup, inspector, deployer, rules, mock(WorkflowOperationAuditService.class), tenant, principal);

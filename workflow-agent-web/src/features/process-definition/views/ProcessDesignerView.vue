@@ -41,6 +41,8 @@ import {
 } from '@/features/service-registry/serviceCallMapping'
 import { showsApprovalMode } from '../serviceTaskPanel'
 import ScriptTaskConfigPanel from '../components/ScriptTaskConfigPanel.vue'
+import ReceiveTaskConfigPanel from '../components/ReceiveTaskConfigPanel.vue'
+import { isManualWaitElement } from '@/bpmn/waitTaskModel'
 import {
   fromInParameters,
   scriptTaskWarnings,
@@ -154,6 +156,7 @@ const selectedType = computed(
 const isAgentTask = computed(() => isAgentTaskElement(selectedBusinessObject.value))
 const isServiceTask = computed(() => selectedType.value === 'bpmn:ServiceTask')
 const isScriptTask = computed(() => selectedType.value === 'bpmn:ScriptTask')
+const isManualWait = computed(() => isManualWaitElement(selectedBusinessObject.value))
 const isTask = computed(() =>
   [
     'bpmn:Task',
@@ -230,6 +233,7 @@ function getElementTypeLabel(type: string) {
     'bpmn:Task': 'Việc thường',
     'bpmn:ServiceTask': 'Gọi dịch vụ',
     'bpmn:ScriptTask': 'Chạy script',
+    'bpmn:ReceiveTask': 'Bước chờ',
     'bpmn:ExclusiveGateway': 'Rẽ một nhánh',
     'bpmn:ParallelGateway': 'Chạy song song',
     'bpmn:InclusiveGateway': 'Rẽ nhiều nhánh',
@@ -1776,11 +1780,22 @@ watch(viewingVersion, () => resetSelection())
               @apply="applyScriptTask()"
             />
 
+            <ReceiveTaskConfigPanel
+              v-if="isManualWait && selectedElement && modeler"
+              :element="selectedElement"
+              :modeler="modeler"
+            />
+
             <div v-if="!isAgentTask && (isTask || isSequenceFlow)" class="property-block">
               <strong>Luật chuyển</strong>
               <el-form label-position="top" size="small">
                 <el-form-item
-                  v-if="showsApprovalMode(isTask, isServiceTask || isScriptTask)"
+                  v-if="
+                    showsApprovalMode(
+                      isTask,
+                      isServiceTask || isScriptTask || selectedType === 'bpmn:ReceiveTask',
+                    )
+                  "
                   label="Loại bước"
                 >
                   <el-select

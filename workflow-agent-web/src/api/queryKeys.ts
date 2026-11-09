@@ -22,6 +22,8 @@ export const queryKeys = {
     [...queryKeys.processInstances(tenantCode), 'detail', id] as const,
   processInstanceDiagram: (tenantCode: string, id: string) =>
     [...queryKeys.processInstances(tenantCode), 'diagram', id] as const,
+  processInstanceWaits: (tenantCode: string, id: string) =>
+    [...queryKeys.processInstances(tenantCode), 'waits', id] as const,
   assignmentRules: (tenantCode: string) =>
     [...tenantScope(tenantCode), 'assignment-rules'] as const,
   assignmentRulePage: (tenantCode: string, parameters: QueryParameters) =>

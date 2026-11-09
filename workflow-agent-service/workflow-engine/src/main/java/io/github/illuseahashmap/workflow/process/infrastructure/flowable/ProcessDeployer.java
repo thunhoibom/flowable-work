@@ -32,6 +32,7 @@ public class ProcessDeployer {
     private final ScriptTaskDeploymentGuard scriptTaskDeploymentGuard;
     private final SubProcessDeploymentGuard subProcessDeploymentGuard;
     private final CallActivityDeploymentGuard callActivityDeploymentGuard;
+    private final EventRegistryDeploymentGuard eventRegistryDeploymentGuard;
     private final CallReferenceRepository callReferences;
     private final AgentTaskBindingParser agentTaskBindingParser;
     private final AgentBindingDeploymentValidator agentBindingDeploymentValidator;
@@ -41,6 +42,7 @@ public class ProcessDeployer {
                            BpmnDraftInspector inspector, ScriptTaskDeploymentGuard scriptTaskDeploymentGuard,
                            SubProcessDeploymentGuard subProcessDeploymentGuard,
                            CallActivityDeploymentGuard callActivityDeploymentGuard,
+                           EventRegistryDeploymentGuard eventRegistryDeploymentGuard,
                            CallReferenceRepository callReferences,
                            AgentTaskBindingParser agentTaskBindingParser,
                            AgentBindingDeploymentValidator agentBindingDeploymentValidator,
@@ -51,6 +53,7 @@ public class ProcessDeployer {
         this.scriptTaskDeploymentGuard = scriptTaskDeploymentGuard;
         this.subProcessDeploymentGuard = subProcessDeploymentGuard;
         this.callActivityDeploymentGuard = callActivityDeploymentGuard;
+        this.eventRegistryDeploymentGuard = eventRegistryDeploymentGuard;
         this.callReferences = callReferences;
         this.agentTaskBindingParser = agentTaskBindingParser;
         this.agentBindingDeploymentValidator = agentBindingDeploymentValidator;
@@ -62,6 +65,7 @@ public class ProcessDeployer {
         inspector.check(key, xml);
         scriptTaskDeploymentGuard.check(xml);
         subProcessDeploymentGuard.check(xml);
+        eventRegistryDeploymentGuard.check(xml);
         List<CallActivityDeploymentGuard.Call> calls = callActivityDeploymentGuard.check(tenant, key, xml);
         agentBindingDeploymentValidator.validate(tenant.tenantCode(), agentTaskBindingParser.parse(xml));
         ProcessDefinition definition = deploy(tenant, key, name, xml);

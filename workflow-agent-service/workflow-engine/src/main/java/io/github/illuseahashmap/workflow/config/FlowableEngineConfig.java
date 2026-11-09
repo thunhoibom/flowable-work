@@ -2,6 +2,7 @@ package io.github.illuseahashmap.workflow.config;
 
 import io.github.illuseahashmap.workflow.process.application.WorkflowInteractionGuard;
 import io.github.illuseahashmap.workflow.process.application.port.WorkflowOperationAuditRepository;
+import io.github.illuseahashmap.workflow.process.infrastructure.flowable.eventregistry.WorkflowBpmnEventRegistryEventConsumer;
 import io.github.illuseahashmap.workflow.process.infrastructure.flowable.script.WorkflowScriptConfigurator;
 import io.github.illuseahashmap.workflow.process.infrastructure.flowable.subprocess.SubProcessAuditListener;
 import io.github.illuseahashmap.workflow.process.infrastructure.flowable.subprocess.WorkflowSubProcessStartInterceptor;
@@ -24,6 +25,8 @@ public class FlowableEngineConfig {
             ObjectProvider<WorkflowOperationAuditRepository> auditRepository) {
         return configuration -> {
             configuration.setCreateDiagramOnDeploy(false);
+            // Failing subscriptions no longer stop the remaining ones; outcomes go to InboundDispatchContext.
+            configuration.setEventRegistryEventConsumer(new WorkflowBpmnEventRegistryEventConsumer(configuration));
             // Always installed: a deployed script task must never fall back to an unsandboxed engine.
             configuration.addConfigurator(new WorkflowScriptConfigurator(scriptTaskProperties));
             // Always installed: a deployed call activity always gets trusted tenant variables.

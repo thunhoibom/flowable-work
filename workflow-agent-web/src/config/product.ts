@@ -9,7 +9,8 @@ export const agentsEnabled = false
 export const scriptTasksEnabled = import.meta.env.VITE_SCRIPT_TASKS_ENABLED === 'true'
 
 /**
- * Shows "call another process" in the palette and replace menu.
- * The backend flag workflow.subprocess.call-activity-enabled still decides at publish time.
+ * Shows "call another process" in the palette and replace menu. On unless
+ * VITE_CALL_ACTIVITY_ENABLED=false. The backend flag
+ * workflow.subprocess.call-activity-enabled still decides at publish time.
  */
-export const callActivityEnabled = import.meta.env.VITE_CALL_ACTIVITY_ENABLED === 'true'
+export const callActivityEnabled = import.meta.env.VITE_CALL_ACTIVITY_ENABLED !== 'false'
