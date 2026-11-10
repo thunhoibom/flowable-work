@@ -1,74 +1,108 @@
 <script setup lang="ts">
+import { Plus, SquarePen, Trash2 } from '@lucide/vue'
+import TableTagCell from '@/components/TableTagCell.vue'
 import type { CatalogOperation } from './api'
-import { operationPublishStatus, operationStatusLabel } from './catalogStatus'
+import {
+  operationPublishStatus,
+  operationStatusLabel,
+  type OperationPublishStatus,
+} from './catalogStatus'
 
-defineProps<{
-  operations: CatalogOperation[]
-  selectedOperationKey: string
-}>()
+withDefaults(
+  defineProps<{
+    operations: CatalogOperation[]
+    loading?: boolean
+  }>(),
+  { loading: false },
+)
 
 const emit = defineEmits<{
   select: [operationKey: string]
   add: []
   remove: [operationKey: string]
 }>()
+
+const statusTag: Record<OperationPublishStatus, 'success' | 'warning' | 'info'> = {
+  published: 'success',
+  changed: 'warning',
+  unpublished: 'info',
+}
 </script>
 
 <template>
   <div class="operation-table">
     <div class="operation-table__header">
       <strong>Thao tác</strong>
-      <el-button data-action="add-operation" @click="emit('add')">Thêm thao tác</el-button>
+      <el-button data-action="add-operation" @click="emit('add')">
+        <Plus :size="16" />Thêm thao tác
+      </el-button>
     </div>
-    <p v-if="!operations.length">Chưa có thao tác</p>
-    <div v-else class="operation-table__rows">
-      <div class="operation-table__head" aria-hidden="true">
-        <span>STT</span>
-        <span>Phương thức</span>
-        <span>Mã thao tác</span>
-        <span>Mẫu địa chỉ</span>
-        <span>Nội dung</span>
-        <span>Trạng thái</span>
-        <span>Khóa</span>
-        <span>Thao tác</span>
-      </div>
-      <div
-        v-for="(operation, index) in operations"
-        :key="operation.operationKey"
-        class="operation-row"
-        :data-status="operationPublishStatus(operation)"
-        :aria-current="operation.operationKey === selectedOperationKey ? 'true' : undefined"
-      >
-        <span class="operation-row__index">{{ index + 1 }}</span>
-        <span>{{ operation.method }}</span>
-        <span>{{ operation.operationKey }}</span>
-        <span class="operation-row__url">{{ operation.urlTemplate }}</span>
+    <el-table v-loading="loading" :data="operations" row-key="operationKey" table-layout="fixed">
+      <el-table-column label="STT" width="64" align="center">
+        <template #default="{ $index }">
+          <span class="operation-table__index">{{ $index + 1 }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="Phương thức" width="110">
+        <template #default="{ row }">
+          <code class="operation-table__method">{{ row.method }}</code>
+        </template>
+      </el-table-column>
+      <el-table-column label="Mã thao tác" min-width="150" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.operationKey }}</template>
+      </el-table-column>
+      <el-table-column label="Mẫu địa chỉ" min-width="240" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.urlTemplate }}</template>
+      </el-table-column>
+      <el-table-column label="Nội dung" width="100">
         <!-- Operations saved before content types existed are JSON. -->
-        <span>{{ operation.contentType || 'JSON' }}</span>
-        <span>{{ operationStatusLabel[operationPublishStatus(operation)] }}</span>
-        <span>{{ operation.secretPresent ? 'Đã lưu khóa' : 'Không có khóa' }}</span>
-        <span class="operation-row__actions">
-          <el-button
-            link
-            type="primary"
-            data-action="edit-operation"
-            :data-operation="operation.operationKey"
-            @click="emit('select', operation.operationKey)"
-          >
-            Sửa
-          </el-button>
-          <el-button
-            link
-            type="danger"
-            data-action="delete-operation"
-            :data-operation-key="operation.operationKey"
-            @click="emit('remove', operation.operationKey)"
-          >
-            Xóa
-          </el-button>
-        </span>
-      </div>
-    </div>
+        <template #default="{ row }">{{ row.contentType || 'JSON' }}</template>
+      </el-table-column>
+      <el-table-column label="Trạng thái" width="140">
+        <template #default="{ row }">
+          <TableTagCell>
+            <el-tag
+              :type="statusTag[operationPublishStatus(row)]"
+              effect="light"
+              round
+              :data-status="operationPublishStatus(row)"
+            >
+              {{ operationStatusLabel[operationPublishStatus(row)] }}
+            </el-tag>
+          </TableTagCell>
+        </template>
+      </el-table-column>
+      <el-table-column label="Khóa" width="130">
+        <template #default="{ row }">{{ row.secretPresent ? 'Đã lưu khóa' : 'Không có khóa' }}</template>
+      </el-table-column>
+      <el-table-column label="Hành động" width="150" fixed="right">
+        <template #default="{ row }">
+          <div class="row-actions">
+            <el-button
+              link
+              type="primary"
+              data-action="edit-operation"
+              :data-operation="row.operationKey"
+              @click="emit('select', row.operationKey)"
+            >
+              <SquarePen :size="14" />Sửa
+            </el-button>
+            <el-button
+              link
+              type="danger"
+              data-action="delete-operation"
+              :data-operation-key="row.operationKey"
+              @click="emit('remove', row.operationKey)"
+            >
+              <Trash2 :size="14" />Xóa
+            </el-button>
+          </div>
+        </template>
+      </el-table-column>
+      <template #empty>
+        <p class="operation-table__empty">Chưa có thao tác</p>
+      </template>
+    </el-table>
   </div>
 </template>
 
@@ -87,105 +121,21 @@ const emit = defineEmits<{
 }
 
 .operation-table__header strong {
-  font-size: 18px;
+  font-size: 16px;
 }
 
-.operation-table p {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 15px;
-}
-
-.operation-table__rows {
-  display: grid;
-  grid-template-columns:
-    40px
-    minmax(0, max-content)
-    minmax(0, 0.9fr)
-    minmax(0, 1.6fr)
-    minmax(0, max-content)
-    minmax(0, max-content)
-    minmax(0, max-content)
-    max-content;
-  column-gap: 12px;
-  align-items: center;
-  min-width: 0;
-}
-
-.operation-table__head,
-.operation-row {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-  align-items: center;
-  min-width: 0;
-}
-
-.operation-table__head > span,
-.operation-row > span:not(.operation-row__actions) {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.operation-table__head {
-  min-height: 32px;
-  color: var(--color-text-muted);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.operation-row {
-  min-height: 56px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--color-border-soft);
-  color: var(--color-text);
-  font-size: 15px;
-  line-height: 1.4;
-  text-align: left;
-}
-
-.operation-row__index {
+.operation-table__index {
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
-.operation-row__actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.operation-table__method {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
 }
 
-.operation-row[aria-current='true'] {
-  background: var(--color-primary-soft);
-}
-
-.operation-row__url {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 959px) {
-  .operation-table__rows {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: 12px;
-  }
-
-  .operation-table__head {
-    display: none;
-  }
-
-  .operation-row {
-    grid-column: auto;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-    padding: 8px 0;
-  }
-
-  .operation-row__url {
-    white-space: normal;
-  }
+.operation-table__empty {
+  margin: 0;
+  color: var(--color-text-muted);
 }
 </style>

@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { ListTree, Plus, RefreshCw, Rocket, Search, Server, SquarePen, Trash2 } from '@lucide/vue'
 import { getErrorMessage } from '@/api/http'
 import ListEmptyState from '@/components/ListEmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TableTagCell from '@/components/TableTagCell.vue'
 import { confirmAction } from '@/utils/confirmation'
 import { serviceCatalogApi, type CatalogOperation, type ServiceView } from './api'
+import { serviceNeedsPublish } from './catalogStatus'
 import OperationEditor from './OperationEditor.vue'
 import OperationTable from './OperationTable.vue'
-import ServiceListPanel from './ServiceListPanel.vue'
 import {
   authTypes,
   blankOperationDraft,
@@ -28,6 +30,8 @@ const publishing = ref(false)
 const createVisible = ref(false)
 const editVisible = ref(false)
 const editorVisible = ref(false)
+/** The operations modal of the service in `selectedKey`. */
+const operationsVisible = ref(false)
 const query = ref('')
 const selectedKey = ref('')
 const editingKey = ref<string | null>(null)
@@ -59,6 +63,44 @@ const selectedService = computed(() =>
   services.value.find((service) => service.serviceKey === selectedKey.value),
 )
 const dirty = computed(() => isOperationDraftDirty(draft.value, baseline.value))
+const filteredServices = computed(() => {
+  const needle = query.value.trim().toLowerCase()
+  if (!needle) return services.value
+  return services.value.filter(
+    (service) =>
+      service.serviceKey.toLowerCase().includes(needle) ||
+      service.name.toLowerCase().includes(needle),
+  )
+})
+
+type ServiceStatus = 'empty' | 'pending' | 'published'
+const serviceStatusLabel: Record<ServiceStatus, string> = {
+  empty: 'Chưa có thao tác',
+  pending: 'Cần phát hành',
+  published: 'Đã phát hành',
+}
+const serviceStatusTag: Record<ServiceStatus, 'info' | 'warning' | 'success'> = {
+  empty: 'info',
+  pending: 'warning',
+  published: 'success',
+}
+
+function serviceStatus(service: ServiceView): ServiceStatus {
+  if (!service.operations.length) return 'empty'
+  return serviceNeedsPublish(service.operations) ? 'pending' : 'published'
+}
+
+function authLabel(service: ServiceView) {
+  const type = service.sharedAuth?.type || 'NONE'
+  return authTypes.find((auth) => auth.value === type)?.label ?? type
+}
+
+function baseUrlLabel(service: ServiceView) {
+  const first = service.baseUrls?.[0]
+  if (!first) return '—'
+  const more = (service.baseUrls?.length ?? 1) - 1
+  return `${first.environment}: ${first.url}${more > 0 ? ` (+${more})` : ''}`
+}
 
 function loadNew() {
   editingKey.value = null
@@ -88,10 +130,11 @@ async function refresh(prefer?: { serviceKey?: string; operationKey?: string }) 
   try {
     services.value = (await serviceCatalogApi.list()).filter((service) => service.serviceKey)
     const preferred = prefer?.serviceKey || selectedKey.value
-    const service =
-      services.value.find((item) => preferred && item.serviceKey === preferred) || services.value[0]
+    const service = services.value.find((item) => preferred && item.serviceKey === preferred)
     if (!service) {
       selectedKey.value = ''
+      operationsVisible.value = false
+      editorVisible.value = false
       loadNew()
       return
     }
@@ -110,10 +153,15 @@ async function refresh(prefer?: { serviceKey?: string; operationKey?: string }) 
   }
 }
 
-async function selectService(serviceKey: string) {
-  if (serviceKey === selectedKey.value) return
-  if (!(await confirmDiscard())) return
+function openOperations(serviceKey: string) {
   selectedKey.value = serviceKey
+  editorVisible.value = false
+  loadNew()
+  operationsVisible.value = true
+}
+
+function closeOperations() {
+  operationsVisible.value = false
   editorVisible.value = false
   loadNew()
 }
@@ -162,8 +210,8 @@ async function removeOperation(operationKey: string) {
   }
 }
 
-async function removeService() {
-  const service = selectedService.value
+async function removeService(serviceKey: string) {
+  const service = services.value.find((item) => item.serviceKey === serviceKey)
   if (!service?.serviceKey) return
   const confirmed = await confirmAction(
     `Xóa dịch vụ “${service.name}”? Những lần chạy sau sẽ không còn gọi được dịch vụ này.`,
@@ -173,9 +221,10 @@ async function removeService() {
   if (!confirmed) return
   try {
     await serviceCatalogApi.deleteService(service.serviceKey)
-    editorVisible.value = false
-    selectedKey.value = ''
-    loadNew()
+    if (selectedKey.value === service.serviceKey) {
+      closeOperations()
+      selectedKey.value = ''
+    }
     await refresh()
     ElMessage.success('Đã xóa dịch vụ')
   } catch (error) {
@@ -189,8 +238,8 @@ function openCreate() {
   createVisible.value = true
 }
 
-function openEdit() {
-  const service = selectedService.value
+function openEdit(serviceKey: string) {
+  const service = services.value.find((item) => item.serviceKey === serviceKey)
   if (!service) return
   editForm.serviceKey = service.serviceKey
   editForm.name = service.name
@@ -276,13 +325,13 @@ async function createService() {
     ElMessage.warning('Mã dịch vụ đã tồn tại')
     return
   }
-  if (!(await confirmDiscard())) return
   creating.value = true
   try {
     await serviceCatalogApi.create({ serviceKey, name })
     createVisible.value = false
     await refresh({ serviceKey })
-    loadNew()
+    // A new service has no operations yet, so open its operation list right away.
+    openOperations(serviceKey)
     ElMessage.success('Đã lưu dịch vụ')
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
@@ -311,16 +360,20 @@ async function saveOperation() {
   }
 }
 
-async function publishService() {
-  if (!selectedKey.value) return
-  if (dirty.value) {
+async function publishService(serviceKey = selectedKey.value) {
+  if (!serviceKey) return
+  if (serviceKey === selectedKey.value && editorVisible.value && dirty.value) {
     ElMessage.warning('Lưu thao tác trước khi phát hành')
     return
   }
   publishing.value = true
   try {
-    await serviceCatalogApi.publish(selectedKey.value)
-    await refresh({ serviceKey: selectedKey.value, operationKey: editingKey.value || undefined })
+    await serviceCatalogApi.publish(serviceKey)
+    await refresh(
+      serviceKey === selectedKey.value
+        ? { serviceKey, operationKey: editingKey.value || undefined }
+        : undefined,
+    )
     ElMessage.success('Đã phát hành. Những lần chạy sau dùng bản này')
   } catch (error) {
     ElMessage.error(getErrorMessage(error))
@@ -335,55 +388,183 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="page-stack service-catalog">
+  <div class="management-page page-stack service-catalog">
     <PageHeader
       eyebrow="Tích hợp"
       title="Dịch vụ"
       description="Khai báo API bên ngoài. Trong quy trình, bạn chỉ chọn dịch vụ và thao tác."
     >
       <template #actions>
-        <el-button @click="openCreate">Tạo dịch vụ</el-button>
+        <el-button type="primary" data-action="create-service" @click="openCreate">
+          <Plus :size="17" />Tạo dịch vụ
+        </el-button>
       </template>
     </PageHeader>
 
-    <p v-if="loading && !services.length">Đang tải</p>
-    <ListEmptyState
-      v-else-if="!services.length"
-      title="Chưa có dịch vụ"
-      description="Tạo một dịch vụ để khai báo API bên ngoài."
+    <section class="page-actions compact-filter">
+      <el-form class="filter-form" inline @submit.prevent>
+        <el-form-item label="Tìm dịch vụ">
+          <el-input
+            v-model="query"
+            clearable
+            aria-label="Tìm dịch vụ"
+            placeholder="Mã hoặc tên dịch vụ"
+          >
+            <template #prefix><Search :size="15" /></template>
+          </el-input>
+        </el-form-item>
+        <el-form-item class="filter-form__actions">
+          <el-button data-action="reload" :loading="loading" @click="refresh()">
+            <RefreshCw :size="16" />Tải lại
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </section>
+
+    <section class="table-panel elevated-panel">
+      <el-table
+        v-loading="loading"
+        :data="filteredServices"
+        row-key="serviceKey"
+        table-layout="fixed"
+      >
+        <el-table-column label="STT" width="64" align="center">
+          <template #default="{ $index }">
+            <span class="catalog-index">{{ $index + 1 }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Dịch vụ" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">
+            <div class="definition-name-cell">
+              <span class="definition-avatar"><Server :size="16" /></span>
+              <div>
+                <strong>{{ row.name }}</strong>
+                <small>{{ row.serviceKey }}</small>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Mô tả" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.description || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="Địa chỉ gốc" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ baseUrlLabel(row) }}</template>
+        </el-table-column>
+        <el-table-column label="Xác thực" width="130">
+          <template #default="{ row }">{{ authLabel(row) }}</template>
+        </el-table-column>
+        <el-table-column label="Số thao tác" width="110" align="center">
+          <template #default="{ row }">{{ row.operations.length }}</template>
+        </el-table-column>
+        <el-table-column label="Trạng thái" width="160">
+          <template #default="{ row }">
+            <TableTagCell>
+              <el-tag
+                :type="serviceStatusTag[serviceStatus(row)]"
+                effect="light"
+                round
+                :data-status="serviceStatus(row)"
+              >
+                {{ serviceStatusLabel[serviceStatus(row)] }}
+              </el-tag>
+            </TableTagCell>
+          </template>
+        </el-table-column>
+        <el-table-column label="Hành động" width="340" fixed="right">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <el-button
+                link
+                type="primary"
+                data-action="open-operations"
+                :data-service="row.serviceKey"
+                @click="openOperations(row.serviceKey)"
+              >
+                <ListTree :size="14" />Thao tác
+              </el-button>
+              <el-button
+                link
+                type="primary"
+                data-action="edit-service"
+                :data-service="row.serviceKey"
+                @click="openEdit(row.serviceKey)"
+              >
+                <SquarePen :size="14" />Sửa
+              </el-button>
+              <el-button
+                link
+                type="success"
+                data-action="publish"
+                :data-service="row.serviceKey"
+                :disabled="publishing"
+                @click="publishService(row.serviceKey)"
+              >
+                <Rocket :size="14" />Phát hành
+              </el-button>
+              <el-button
+                link
+                type="danger"
+                data-action="delete-service"
+                :data-service="row.serviceKey"
+                @click="removeService(row.serviceKey)"
+              >
+                <Trash2 :size="14" />Xóa
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <ListEmptyState
+            v-if="!services.length"
+            title="Chưa có dịch vụ"
+            description="Tạo một dịch vụ để khai báo API bên ngoài."
+          >
+            <el-button type="primary" @click="openCreate"><Plus :size="16" />Tạo dịch vụ</el-button>
+          </ListEmptyState>
+          <p v-else class="catalog-no-match">Không có dịch vụ khớp “{{ query.trim() }}”.</p>
+        </template>
+      </el-table>
+    </section>
+
+    <el-dialog
+      v-if="operationsVisible && selectedService"
+      class="catalog-operations-dialog"
+      :model-value="true"
+      :title="`Thao tác · ${selectedService.name}`"
+      width="min(1120px, calc(100vw - 32px))"
+      :before-close="closeOperations"
     >
-      <el-button type="primary" @click="openCreate">Tạo dịch vụ</el-button>
-    </ListEmptyState>
-    <div v-else class="catalog-workspace">
-      <ServiceListPanel
-        v-model:query="query"
-        :services="services"
-        :selected-key="selectedKey"
-        @select="selectService"
+      <div class="catalog-operations__summary">
+        <div>
+          <code>{{ selectedService.serviceKey }}</code>
+          <el-tag
+            :type="serviceStatusTag[serviceStatus(selectedService)]"
+            effect="light"
+            round
+          >
+            {{ serviceStatusLabel[serviceStatus(selectedService)] }}
+          </el-tag>
+        </div>
+        <el-button
+          type="primary"
+          data-action="publish-operations"
+          :loading="publishing"
+          @click="publishService(selectedService.serviceKey)"
+        >
+          <Rocket :size="15" />Phát hành dịch vụ
+        </el-button>
+      </div>
+      <OperationTable
+        :operations="selectedService.operations"
+        :loading="loading"
+        @select="selectOperation"
+        @add="addOperation"
+        @remove="removeOperation"
       />
-      <section v-if="selectedService" class="catalog-detail">
-        <header>
-          <div>
-            <h3>{{ selectedService.name }}</h3>
-            <p>{{ selectedService.serviceKey }}</p>
-          </div>
-          <div class="catalog-detail__actions">
-            <el-button data-action="edit-service" @click="openEdit">Sửa dịch vụ</el-button>
-            <el-button data-action="delete-service" @click="removeService">Xóa dịch vụ</el-button>
-            <el-button data-action="publish" type="primary" :loading="publishing" @click="publishService">
-              Phát hành
-            </el-button>
-          </div>
-        </header>
-        <OperationTable
-          :operations="selectedService.operations"
-          :selected-operation-key="editorVisible ? editingKey || '' : ''"
-          @select="selectOperation"
-          @add="addOperation"
-          @remove="removeOperation"
-        />
-      </section>
-    </div>
+      <template #footer>
+        <el-button @click="closeOperations">Đóng</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-if="editorVisible"
@@ -391,6 +572,7 @@ onMounted(() => {
       :model-value="true"
       :title="editingKey ? 'Sửa thao tác' : 'Thêm thao tác'"
       width="min(760px, calc(100vw - 32px))"
+      append-to-body
       :before-close="closeEditor"
     >
       <OperationEditor
@@ -519,43 +701,35 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.catalog-workspace {
-  display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  gap: 16px;
-  min-width: 0;
-  min-height: 0;
+.catalog-index {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
-.catalog-detail {
-  display: grid;
-  align-content: start;
-  gap: 20px;
-  min-width: 0;
-  padding: 16px;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface);
+.catalog-no-match {
+  margin: 24px 0;
+  color: var(--color-text-muted);
 }
 
-.catalog-detail header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 0;
-}
-
-.catalog-detail header > div:first-child {
-  min-width: 0;
-}
-
-.catalog-detail__actions {
+.catalog-operations__summary {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.catalog-operations__summary > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.catalog-operations__summary code {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
 }
 
 .base-url-row {
@@ -565,33 +739,4 @@ onMounted(() => {
   margin-bottom: 8px;
 }
 
-.catalog-detail h3,
-.catalog-detail p {
-  margin: 0;
-}
-
-.catalog-detail h3 {
-  overflow: hidden;
-  font-size: 22px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.catalog-detail header p {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-catalog {
-  font-size: 15px;
-}
-
-@media (max-width: 959px) {
-  .catalog-workspace {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

@@ -1,0 +1,223 @@
+.registry-panel {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.registry-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.registry-toolbar--start {
+  justify-content: flex-start;
+}
+
+.registry-filter {
+  display: grid;
+  gap: 4px;
+  min-width: 280px;
+}
+
+.registry-filter > span {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.registry-index,
+.registry-table__index {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.registry-table__index {
+  width: 48px;
+}
+
+.registry-name-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.registry-name-cell strong,
+.registry-name-cell small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.registry-name-cell strong {
+  color: var(--color-text-strong);
+  font-size: 13px;
+}
+
+.registry-name-cell small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.registry-editor {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.registry-form__wide {
+  grid-column: 1 / -1;
+}
+
+.registry-error {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.registry-input:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  cursor: not-allowed;
+}
+
+.registry-badges,
+.registry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.registry-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 16px;
+}
+
+.registry-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.registry-form label > span {
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.registry-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+}
+
+.registry-input:focus {
+  border-color: var(--color-primary);
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 0;
+}
+
+.registry-table-wrap {
+  overflow-x: auto;
+}
+
+.registry-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+.registry-table th,
+.registry-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--color-border-soft);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.registry-table th {
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.registry-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.registry-problems {
+  padding: 12px 16px;
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.registry-problems ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.registry-problems p {
+  margin: 8px 0 0;
+}
+
+.registry-webhook {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.registry-webhook__url {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.registry-webhook code,
+.registry-webhook pre {
+  overflow-x: auto;
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  white-space: pre;
+}
+
+.registry-webhook code {
+  word-break: break-all;
+  white-space: normal;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.registry-usages {
+  display: grid;
+  gap: 6px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-lg);
+}
+
+.registry-usages ul {
+  margin: 0;
+  padding-left: 18px;
+}

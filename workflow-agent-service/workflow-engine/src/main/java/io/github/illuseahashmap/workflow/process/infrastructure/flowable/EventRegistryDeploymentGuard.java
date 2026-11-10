@@ -1,49 +1,159 @@
 package io.github.illuseahashmap.workflow.process.infrastructure.flowable;
 
+import io.github.illuseahashmap.workflow.config.EventRegistryProperties;
+import io.github.illuseahashmap.workflow.eventregistry.application.port.EventRegistryGateway;
+import io.github.illuseahashmap.workflow.eventregistry.domain.EventField;
+import io.github.illuseahashmap.workflow.process.application.ProcessVariablePolicy;
+import io.github.illuseahashmap.workflow.shared.context.TenantContext;
 import io.github.illuseahashmap.workflow.shared.exception.BusinessException;
 import io.github.illuseahashmap.workflow.shared.exception.ErrorCode;
-import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
+import java.util.function.Function;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
-import org.xml.sax.InputSource;
 
 /**
- * Event registry elements on a published diagram. Until slice 5 of spec 2026-11-09 they are all
- * rejected: the event library, channels and designer panels they depend on do not exist yet.
+ * Event registry elements on a published diagram (spec 2026-11-09-event-registry-d1-design).
+ * Event waits on receive tasks, intermediate catch events and boundary events are checked against
+ * the tenant's published events. Event start, send-event and trigger events belong to later phases.
  * A receive task after an event-based gateway is rejected for good: Flowable does not support it.
  */
 @Component
 public class EventRegistryDeploymentGuard {
 
-    private static final String BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL";
-    private static final Set<String> FLOWABLE_NS = Set.of("http://flowable.org/bpmn", "http://activiti.org/bpmn");
-    private static final Set<String> EVENT_ELEMENTS = Set.of("eventType", "triggerEventType");
+    private static final String BPMN_NS = EventWaitBindingParser.BPMN_NS;
+    private static final Set<String> FLOWABLE_NS = EventWaitBindingParser.FLOWABLE_NS;
+    private static final Set<String> WAIT_ELEMENTS = Set.of("receiveTask", "intermediateCatchEvent", "boundaryEvent");
+    private static final Set<String> TRIGGER_ELEMENTS = Set.of("triggerEventType", "triggerEventCorrelationParameter");
+    private static final Pattern EVENT_KEY = Pattern.compile("^[A-Za-z][A-Za-z0-9_-]{0,63}$");
+    private static final Pattern VARIABLE = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]{0,127}$");
 
-    public void check(String bpmnXml) {
-        Document document = parse(bpmnXml);
+    private final EventRegistryProperties properties;
+    private final EventRegistryGateway gateway;
+
+    public EventRegistryDeploymentGuard(EventRegistryProperties properties, EventRegistryGateway gateway) {
+        this.properties = properties;
+        this.gateway = gateway;
+    }
+
+    /** Throws on the first unsupported shape, or with every wait problem; returns the waits that passed. */
+    public List<EventWaitBinding> check(TenantContext.TenantInfo tenant, String bpmnXml) {
+        Document document = EventWaitBindingParser.document(bpmnXml);
+        rejectLaterPhases(document);
+        rejectReceiveTasksAfterEventGateways(document);
+        List<EventWaitBinding> bindings = EventWaitBindingParser.parse(document);
+        for (EventWaitBinding binding : bindings) {
+            if (binding.agentTask()) {
+                throw invalid("Bước " + binding.activityId() + " không thể vừa là tác vụ Agent vừa chờ sự kiện");
+            }
+        }
+        if (bindings.isEmpty()) {
+            return List.of();
+        }
+        if (!properties.isEnabled()) {
+            throw invalid("Bước " + bindings.getFirst().activityId()
+                    + " chờ sự kiện nhưng tính năng sự kiện chưa được bật");
+        }
+        Map<String, Optional<List<EventField>>> published = new HashMap<>();
+        List<String> problems = new ArrayList<>();
+        for (EventWaitBinding binding : bindings) {
+            problems.addAll(problems(binding, key -> published.computeIfAbsent(key,
+                    ignored -> gateway.publishedEventFields(tenant.tenantId(), key))));
+        }
+        if (!problems.isEmpty()) {
+            throw invalid(String.join("; ", problems));
+        }
+        return bindings;
+    }
+
+    private static List<String> problems(EventWaitBinding binding,
+                                         Function<String, Optional<List<EventField>>> fields) {
+        String step = "Bước " + binding.activityId();
+        List<String> problems = new ArrayList<>();
+        if (binding.hasEventDefinition()) {
+            problems.add(step + " không được vừa có định nghĩa sự kiện vừa chờ sự kiện Event Registry");
+            return problems;
+        }
+        String key = binding.eventKey();
+        if (key.isBlank() || key.contains("${") || key.contains("#{") || !EVENT_KEY.matcher(key).matches()) {
+            problems.add(step + ": mã sự kiện phải là mã cố định hợp lệ");
+            return problems;
+        }
+        Optional<List<EventField>> event = fields.apply(key);
+        if (event.isEmpty()) {
+            problems.add(step + ": sự kiện " + key + " chưa được phát hành");
+            return problems;
+        }
+        if (binding.correlations().isEmpty()) {
+            problems.add(step + " phải có ít nhất một trường tương quan");
+        }
+        Set<String> correlationFields = new HashSet<>();
+        Set<String> allFields = new HashSet<>();
+        for (EventField field : event.get()) {
+            allFields.add(field.name());
+            if (field.correlation()) {
+                correlationFields.add(field.name());
+            }
+        }
+        Set<String> seen = new HashSet<>();
+        for (EventWaitBinding.Correlation correlation : binding.correlations()) {
+            String name = correlation.name();
+            if (!correlationFields.contains(name)) {
+                problems.add(step + ": sự kiện " + key + " không có trường tương quan " + name);
+            } else if (!seen.add(name)) {
+                problems.add(step + ": trường tương quan " + name + " bị lặp");
+            } else if (correlation.value() == null || correlation.value().isBlank()) {
+                problems.add(step + ": trường tương quan " + name + " chưa có giá trị");
+            }
+        }
+        Set<String> targets = new HashSet<>();
+        for (EventWaitBinding.Output output : binding.outputs()) {
+            String target = output.target() == null ? "" : output.target().trim();
+            if (!allFields.contains(output.source())) {
+                problems.add(step + ": sự kiện " + key + " không có trường " + output.source());
+            }
+            if (!VARIABLE.matcher(target).matches()) {
+                problems.add(step + ": tên biến " + target + " không hợp lệ");
+            } else if (ProcessVariablePolicy.isInternalVariable(target)) {
+                problems.add(step + ": biến " + target + " do hệ thống quản lý");
+            } else if (!targets.add(target)) {
+                problems.add(step + ": biến " + target + " được gán hai lần");
+            }
+        }
+        return problems;
+    }
+
+    private static void rejectLaterPhases(Document document) {
         NodeList all = document.getElementsByTagNameNS("*", "*");
         for (int index = 0; index < all.getLength(); index++) {
             Element element = (Element) all.item(index);
-            if (FLOWABLE_NS.contains(element.getNamespaceURI()) && EVENT_ELEMENTS.contains(element.getLocalName())) {
+            if (FLOWABLE_NS.contains(element.getNamespaceURI())) {
                 Element owner = owner(element);
                 String id = owner == null ? "?" : owner.getAttribute("id");
-                if (owner != null && "receiveTask".equals(owner.getLocalName()) && hasAgentTask(owner)) {
-                    throw invalid("Bước " + id + " không thể vừa là tác vụ Agent vừa chờ sự kiện");
+                if (TRIGGER_ELEMENTS.contains(element.getLocalName())) {
+                    throw laterPhase(id, "chờ phản hồi sau khi gửi sự kiện");
                 }
-                throw invalid("Bước " + id + " dùng sự kiện (Event Registry), tính năng này chưa được hỗ trợ");
+                if ("eventType".equals(element.getLocalName())
+                        && (owner == null || !WAIT_ELEMENTS.contains(owner.getLocalName()))) {
+                    throw laterPhase(id, owner != null && "startEvent".equals(owner.getLocalName())
+                            ? "bắt đầu quy trình bằng sự kiện"
+                            : "sự kiện trên " + (owner == null ? "?" : owner.getLocalName()));
+                }
             }
             if (BPMN_NS.equals(element.getNamespaceURI()) && "serviceTask".equals(element.getLocalName())
                     && "send-event".equals(flowableAttribute(element, "type"))) {
-                throw invalid("Bước " + element.getAttribute("id") + " gửi sự kiện, tính năng này chưa được hỗ trợ");
+                throw laterPhase(element.getAttribute("id"), "gửi sự kiện");
             }
         }
-        rejectReceiveTasksAfterEventGateways(document);
     }
 
     private static void rejectReceiveTasksAfterEventGateways(Document document) {
@@ -82,10 +192,6 @@ public class EventRegistryDeploymentGuard {
         return null;
     }
 
-    private static boolean hasAgentTask(Element receiveTask) {
-        return receiveTask.getElementsByTagNameNS("*", "agentTask").getLength() > 0;
-    }
-
     private static String flowableAttribute(Element element, String name) {
         for (String namespace : FLOWABLE_NS) {
             String value = element.getAttributeNS(namespace, name);
@@ -96,18 +202,8 @@ public class EventRegistryDeploymentGuard {
         return "";
     }
 
-    private static Document parse(String bpmnXml) {
-        try {
-            var factory = DocumentBuilderFactory.newInstance();
-            factory.setNamespaceAware(true);
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            return factory.newDocumentBuilder().parse(new InputSource(new StringReader(bpmnXml)));
-        } catch (Exception exception) {
-            throw invalid("BPMN XML could not be read");
-        }
+    private static BusinessException laterPhase(String id, String feature) {
+        return invalid("Bước " + id + " dùng tính năng sự kiện của đợt sau (" + feature + "), chưa được hỗ trợ");
     }
 
     private static BusinessException invalid(String message) {

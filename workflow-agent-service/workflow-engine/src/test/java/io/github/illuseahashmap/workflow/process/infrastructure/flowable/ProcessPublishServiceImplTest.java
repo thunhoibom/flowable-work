@@ -9,6 +9,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.illuseahashmap.workflow.config.EventRegistryProperties;
+import io.github.illuseahashmap.workflow.eventregistry.application.port.EventReferenceRepository;
+import io.github.illuseahashmap.workflow.eventregistry.application.port.EventRegistryGateway;
 import io.github.illuseahashmap.workflow.assignment.application.AssignmentRuleService;
 import io.github.illuseahashmap.workflow.assignment.application.dto.AssignmentRuleInheritResult;
 import io.github.illuseahashmap.workflow.config.ProcessDefinitionProperties;
@@ -116,13 +119,17 @@ class ProcessPublishServiceImplTest {
         callReferences = new InMemoryProcessRepositories.References();
         SubProcessProperties subProcessProperties = new SubProcessProperties();
         subProcessProperties.setCallActivityEnabled(true);
+        // Script tasks are off here so guardFailureDeploysNothing has a guard that rejects.
+        ScriptTaskProperties scriptTaskProperties = new ScriptTaskProperties();
+        scriptTaskProperties.setEnabled(false);
         var deployer = new ProcessDeployer(engine.getRepositoryService(), releases, inspector,
-                new ScriptTaskDeploymentGuard(new ScriptTaskProperties()),
+                new ScriptTaskDeploymentGuard(scriptTaskProperties),
                 new SubProcessDeploymentGuard(subProcessProperties),
                 new CallActivityDeploymentGuard(subProcessProperties, engine.getRepositoryService(), lookup,
                         callReferences, mock(FlowableParticipantAssignmentCoordinator.class)),
-                new EventRegistryDeploymentGuard(),
-                callReferences, mock(AgentTaskBindingParser.class), agentValidator, principal);
+                new EventRegistryDeploymentGuard(new EventRegistryProperties(), mock(EventRegistryGateway.class)),
+                callReferences, mock(EventReferenceRepository.class), mock(AgentTaskBindingParser.class),
+                agentValidator, principal);
         service = new ProcessPublishServiceImpl(engine.getRepositoryService(), draftRepository, releases,
                 lookup, inspector, deployer, rules, mock(WorkflowOperationAuditService.class), tenant, principal);
     }

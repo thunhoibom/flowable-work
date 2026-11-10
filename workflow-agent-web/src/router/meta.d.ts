@@ -7,6 +7,7 @@ export type NavigationIcon =
   | 'assignments'
   | 'agents'
   | 'services'
+  | 'events'
   | 'access'
   | 'tenants'
 

@@ -70,7 +70,7 @@ Sửa V31 là một việc riêng, **không** thuộc Đ1. Khi làm thì:
 
 | Trường | Ràng buộc |
 |---|---|
-| `eventKey` | Bất biến. Gồm `[a-zA-Z][a-zA-Z0-9_-]{0,127}`. Duy nhất trong tenant |
+| `eventKey` | Bất biến. Gồm `[a-zA-Z][a-zA-Z0-9_-]{0,63}`, theo đúng quy tắc của process key. Duy nhất trong tenant |
 | `name`, `description` | Tự do |
 | `fields[]` | `name` (định danh, duy nhất), `type`, `correlationParameter`, `header`, `fullPayload` |
 
@@ -92,7 +92,7 @@ Quy tắc:
 
 | Trường | Ràng buộc |
 |---|---|
-| `channelKey` | Bất biến, cùng quy tắc với event key |
+| `channelKey` | Bất biến, cùng quy tắc với event key. Tối đa 64 ký tự để `consumer_name` của `platform_inbox_event` (VARCHAR 160) chứa đủ `event-channel:` + tenant id + `:` + channel key |
 | `name`, `description` | Tự do |
 | `eventKeyDetection` | Một trong ba: `fixedValue` (một event cố định), `jsonField`, `jsonPointerExpression` |
 | `allowedEventKeys[]` | Bắt buộc khi detection không phải `fixedValue`. Sự kiện có key ngoài danh sách bị từ chối |
@@ -278,7 +278,10 @@ Body: JSON phẳng theo event model, ví dụ {"orderId":"SO-1","amount":120.5}
    - Còn lại (`NO_MATCH`, `FAILED`, `REJECTED`): **xóa dòng**, để bên gửi thử lại được với cùng key.
 6. **Gửi vào engine:** mở `InboundDispatchContext`, rồi gọi `eventRegistry.eventReceived(channelModel, inboundEvent)`. `inboundEvent` gồm body và các header HTTP, trừ `Authorization`, `Cookie`, `X-Workflow-Token`. Pipeline gốc deserialize, nhận diện key và tạo `EventInstance`. Đúng trước khi gửi tới consumer, kiểm tra:
    - key thuộc `allowedEventKeys`, nếu không thì `422 EVENT_NOT_ALLOWED`;
-   - đủ trường correlation và không rỗng, nếu không thì `422 INVALID_EVENT` (R-B2).
+   - đủ trường correlation và không rỗng, nếu không thì `422 INVALID_CORRELATION` (R-B2). So với các trường tương quan của event model, vì trường thiếu trong body không xuất hiện trong `EventInstance`;
+   - body không phải JSON thì `400 INVALID_EVENT`, pipeline không nhận ra sự kiện thì `422 EVENT_NOT_RECOGNIZED`.
+
+   Lát 4 chạy pipeline của channel trực tiếp (`InboundEventProcessingPipeline#run`) để kiểm tra từng `EventInstance`, rồi mới gọi `eventRegistry.sendEventToConsumers`.
 7. **Khớp và trigger:** consumer gốc tìm `ACT_RU_EVENT_SUBSCR` và trigger từng execution. Mỗi trigger là một command riêng. Lớp con ghi kết quả từng subscription.
 8. **Kết quả:**
 
@@ -368,6 +371,23 @@ Mỗi lát phát hành được. Lát sau không đổi hành vi của lát trư
 - **Chưa commit.**
 - **Chưa kiểm tra thủ công trên UI**, gồm Task 14 bước 7 và Task 15 bước 8 trong plan.
 
+**Trạng thái lát 3–4 (2026-11-10):**
+
+- Đã code xong và qua kiểm tra tự động:
+  - Backend `mvn verify` qua: `workflow-engine` 272 test, `workflow-boot` 59 test, SpotBugs 0, đạt ngưỡng độ phủ. Checkstyle 0 vi phạm ở `workflow-engine`, `workflow-boot`, `platform-migrations`.
+  - Web type-check qua, 138 test qua, oxlint và eslint sạch trên các đường dẫn đã sửa.
+- **Chưa commit. Chưa kiểm tra thủ công trên stack local** (Task 14 trong plan lát 3–4), và chưa kiểm tra bằng token Keycloak thật.
+- Một số điểm làm khác plan:
+  - Trường tương quan thiếu trong body không có trong `EventInstance`, nên bộ nhận so với các trường tương quan của event model.
+  - Thêm quy tắc: trường lấy từ header không được có kiểu `json`. Header được chuyển cho Flowable dưới dạng byte để Flowable đổi sang đúng kiểu của trường.
+  - Body sai JSON trả `400 INVALID_EVENT`; lỗi khi chạy pipeline trả `422 EVENT_NOT_RECOGNIZED`.
+  - `Idempotency-Key` phải là UUID dạng chuẩn.
+  - Kênh `FIXED` có giá trị trống được coi là không nhận sự kiện nào.
+  - Các test Postgres của Task 4, 11 và 12 gộp vào `EventRegistryPersistenceIntegrationTest`. Các trường hợp chi tiết của webhook nằm trong `InboundEventReceiverImplTest`, chạy trên engine in-memory.
+- Còn mở:
+  - Job dọn khóa `InboundIdempotencyJanitor` dùng `@Scheduled`. Trong ứng dụng, `@EnableScheduling` hiện chỉ bật khi Agent worker bật, giống `ServiceCallbackService`.
+  - Chưa xác minh service account Keycloak đã có trong `auth_user_tenant`.
+
 Phát hiện khi làm, đã xử lý:
 
 1. Consumer BPMN tạo trước khi engine khởi tạo thì `commandExecutor` bị `null`, nên phải lấy lại khi dùng lần đầu.
@@ -381,6 +401,17 @@ Lỗi có sẵn, không thuộc Đ1, nhưng đang chặn `mvn verify` và `npm r
 - oxlint/eslint web: các lỗi ở `httpSession.spec.ts`, `ServiceCatalogView.spec.ts`, `e2e/workflow.spec.ts`.
 - Test `enablesForcedRowLevelSecurityForFlowableTenantTables` luôn qua mà không kiểm tra gì, vì DB của test không có bảng `act_*`. Đây là lý do lỗi R-C1 của V31 không bị phát hiện.
 
+**Trạng thái lát 5–6 (2026-11-10):**
+
+- Đã code xong và qua kiểm tra tự động:
+  - Backend `mvn verify` qua: `workflow-engine` 305 test, `workflow-boot` 60 test, SpotBugs 0. Checkstyle 0 vi phạm ở `workflow-engine`, `workflow-boot`, `platform-migrations`. Cảnh báo JaCoCo có sẵn của `service-registry` vẫn còn.
+  - Web type-check qua, 166 test qua, oxlint và eslint sạch trên các đường dẫn đã sửa.
+- **Chưa commit. Chưa kiểm tra thủ công trên stack local** (Task 14 trong plan lát 5–6).
+- Một số điểm làm khác plan: xem "Quyết định khi làm lát 5–6" ở cuối tài liệu. Thêm nữa:
+  - Cổng rẽ một nhánh có điều kiện bị Flowable từ chối lúc deploy, nên test R-D2 dùng hai nhánh có điều kiện, nhánh thứ hai luôn sai.
+  - Bước chờ thủ công cũng trả `dueDate` khi có timer biên.
+  - Khối "Đang chờ" của công việc chuyển từ bảng sang danh sách, để hiện được bảng trường tương quan.
+
 1. **Nền engine:** tiền đề 1–3, các điểm mở rộng ở mục Engine (consumer, non-matching, loại `rest`, change detection), migration V40. Chưa có UI.
 2. **Bước chờ thủ công:** palette, panel chế độ thủ công, `asyncLeave`, nút "Thêm hạn chờ", API trigger có whitelist, khối "Đang chờ" kèm nút Tiếp tục.
 3. **Thư viện event model:** API nháp và phát hành, quy tắc tương thích, tab Sự kiện.
@@ -389,6 +420,62 @@ Lỗi có sẵn, không thuộc Đ1, nhưng đang chặn `mvn verify` và `npm r
 6. **Vận hành:** tab Đang chờ, cảnh báo correlation đổi giá trị.
 
 Lát 2 không phụ thuộc lát 3–4, có thể làm song song.
+
+## Hướng dẫn tích hợp webhook
+
+Dành cho hệ thống bên ngoài (ERP, cổng thanh toán…) gửi sự kiện vào một kênh REST đã phát hành.
+
+**Địa chỉ:** `POST {gốc API}/platform-api/channel-definitions/key/{channelKey}/events`. Màn hình "Sự kiện → Kênh nhận" hiện sẵn địa chỉ và lệnh `curl` mẫu.
+
+**Xác thực**, chọn một trong hai:
+
+1. **Service account Keycloak (khuyến nghị).** Client credentials trên realm `rsa`, gửi `Authorization: Bearer <access token>` và `X-Tenant-Code: <mã tổ chức>`. Tài khoản phải là thành viên của tổ chức đó. Không cần CSRF.
+2. **Service token** `X-Workflow-Token` của `workflow_service_client`. Tổ chức phải thuộc `allowed_tenant_codes`, và `allowed_paths` phải gồm `/platform-api/channel-definitions/**`. Mặc định không mở sẵn đường dẫn này.
+
+Danh tính đó còn phải được kênh cho phép: mã người dùng/client thuộc "Người được gửi", hoặc có vai trò thuộc "Vai trò được gửi". Tổ chức luôn lấy từ danh tính, không bao giờ từ body.
+
+**Header bắt buộc:**
+
+- `Content-Type: application/json`.
+- `Idempotency-Key: <UUID>`. Mỗi sự kiện một UUID mới. Chỉ dùng lại UUID khi **gửi lại đúng sự kiện đó** sau lỗi mạng hoặc mã có thể thử lại. Sau `PARTIAL`, các instance lỗi phải gửi bằng **UUID mới**, vì UUID cũ đã được đánh dấu xong. UUID đã xong bị chặn trùng trong `workflow.event-registry.idempotency-retention` (mặc định 7 ngày).
+
+**Body:** JSON theo event model, tối đa `workflow.event-registry.max-body-bytes` (mặc định 262144 byte). Trường tương quan phải có và không rỗng. Trường đánh dấu "Lấy từ header" đọc từ header HTTP cùng tên. `Authorization`, `Cookie`, `X-Workflow-Token` không bao giờ vào sự kiện.
+
+**Mã phản hồi** (body luôn là `{code, message, data, traceId}`):
+
+| HTTP | `code` / `data.status` | Ý nghĩa | Bên gửi nên |
+|---|---|---|---|
+| 200 | `MATCHED` | Mọi công việc khớp đã được tiếp tục | Xong |
+| 200 | `PARTIAL` | Một phần khớp lỗi, xem `data.failed` | Gửi lại phần lỗi bằng UUID mới nếu cần |
+| 200 | `DUPLICATE` (header `Idempotent-Replayed: true`) | UUID này đã xử lý xong trước đó | Xong |
+| 400 | `INVALID_EVENT` | Body trống hoặc không phải JSON | Sửa dữ liệu |
+| 400 | `IDEMPOTENCY_KEY_REQUIRED` | Thiếu `Idempotency-Key` hoặc không phải UUID | Sửa header |
+| 403 | `CHANNEL_FORBIDDEN` | Danh tính không được kênh cho phép | Cấu hình kênh |
+| 404 | `CHANNEL_NOT_FOUND` | Không có kênh này trong tổ chức, hoặc tính năng đang tắt | Kiểm tra mã kênh |
+| 409 | `NO_WAITING_INSTANCE` | Chưa có công việc nào đang chờ sự kiện này | **Thử lại có backoff** |
+| 409 | `CONCURRENT_UPDATE` | Công việc đang được cập nhật đồng thời | **Thử lại có backoff**, cùng UUID |
+| 409 | `EVENT_IN_PROGRESS` | Cùng UUID đang được xử lý (tối đa 60 giây) | Chờ rồi thử lại cùng UUID |
+| 413 | `EVENT_TOO_LARGE` | Body vượt giới hạn | Gửi ít dữ liệu hơn |
+| 415 | | Thiếu `Content-Type: application/json` | Sửa header |
+| 422 | `EVENT_NOT_RECOGNIZED` | Không nhận ra sự kiện, ví dụ trường nhận diện sai | Sửa dữ liệu |
+| 422 | `EVENT_NOT_ALLOWED` | Kênh không nhận sự kiện này | Sửa dữ liệu hoặc kênh |
+| 422 | `INVALID_CORRELATION` | Thiếu hoặc rỗng trường tương quan | Sửa dữ liệu |
+| 500 | `EVENT_PROCESSING_FAILED` | Tiếp tục công việc bị lỗi | Thử lại sau, báo vận hành nếu lặp lại |
+| 503 | `CHANNEL_NOT_READY` | Kênh vừa phát hành, node này chưa nạp xong (tối đa ~10 giây) | **Thử lại có backoff** |
+
+Mọi mã khác `200` đều giải phóng UUID, nên thử lại cùng UUID là an toàn. Backoff gợi ý: 1 s, 2 s, 4 s… tối đa khoảng 5 phút cho `NO_WAITING_INSTANCE` (sự kiện có thể đến trước khi quy trình tới bước chờ, Đ1 không đệm sự kiện đến sớm).
+
+### Bước chờ sẽ nhận sự kiện nào
+
+Một sự kiện chỉ tiếp tục những bước đang chờ đúng **mã sự kiện** đó, trong cùng tổ chức, và có **cùng giá trị ở mọi trường tương quan** mà bước khai báo. Các phần tử BPMN có thể chờ sự kiện:
+
+- **Bước chờ** (`receiveTask`) ở chế độ "Chờ sự kiện". Có thể gắn hạn chờ bằng sự kiện hẹn giờ trên biên.
+- **Sự kiện chờ** (`intermediateCatchEvent` không có event definition). Muốn có hạn chờ, đặt nó sau cổng rẽ theo sự kiện, cùng một sự kiện hẹn giờ.
+- **Sự kiện gắn biên** (`boundaryEvent` không có event definition) trên một task hoặc quy trình con, kiểu ngắt hoặc không ngắt.
+
+Giá trị tương quan được chốt **lúc bước bắt đầu chờ** (R-B2). Nếu biến của công việc đổi sau đó, sự kiện vẫn phải mang **giá trị cũ** mới khớp. Màn "Đang chờ" của công việc hiện giá trị hiện tại và cảnh báo khi giá trị đã đổi. So khớp dùng dạng chuỗi, nên `"123"` trong body khớp biến số `123`.
+
+Nếu nhiều công việc chờ cùng giá trị, một sự kiện tiếp tục tất cả. Công việc nào lỗi thì nằm trong `data.failed`, còn các công việc khác vẫn được tiếp tục (`PARTIAL`).
 
 ## Kiểm tra
 
@@ -433,3 +520,14 @@ Các bài sau luôn phải đúng từ lát tương ứng:
    - Nếu sau này cần lưu nội dung thì làm theo kiểu Enterprise: tùy chọn trên từng bước chờ, lưu vào instance.
 2. **Rate limit:** Enterprise không giới hạn REST hay channel. Đ1 không làm rate limit, để API gateway lo.
 3. **Xác thực webhook:** hỗ trợ cả token Keycloak (khuyến nghị, tương đương OAuth2 của Enterprise) lẫn `X-Workflow-Token`, ngay từ Đ1.
+
+## Quyết định khi làm lát 5–6 (2026-11-10)
+
+1. **`CorrelationProbe` chỉ tính lại đường dẫn biến đơn giản.** Một biểu thức tương quan chỉ được tính lại khi có dạng `${a}` hoặc `${a.b.c}` và `a` là biến của execution. Biểu thức khác có thể gọi bean, nên màn hình ghi "không tính lại" và bỏ qua việc so khớp với khóa đã lưu. Giá trị hiện tại trả về cho người có quyền đọc, nhưng không bao giờ ghi vào log.
+2. **Boundary Event Registry trên quy trình con nhúng được chấp nhận**, cùng với timer và error. Các event definition khác trên quy trình con vẫn bị từ chối.
+3. **Màn "Sự kiện" mở cho mọi vai trò đọc** (`WF_OPERATOR`, `WF_VIEWER`) để họ dùng tab "Đang chờ". Nút tạo, lưu, phát hành, xóa chỉ hiện cho người thiết kế. EIM gán `WF_EVENT` cho cả bốn vai trò.
+4. **Sự kiện chờ (intermediate) lấy hạn chờ qua cổng rẽ theo sự kiện**, cùng một sự kiện hẹn giờ. Designer ghi gợi ý này, không gắn timer lên intermediate.
+5. **Bước lặp (multi-instance):** guard không bắt buộc giá trị tương quan dùng biến phần tử. Designer chỉ cảnh báo (R-B5).
+6. **Intermediate catch "none" không có `flowable:eventType`:** Flowable coi đó là một trạng thái chờ thường, tiếp tục bằng trigger. Đ1 không từ chối và cũng không đưa vào palette.
+7. **Mã sự kiện trên sơ đồ** được Flowable đọc sau khi `trim()`. Guard kiểm tra mã đã `trim()`.
+8. **`latestProcessDefinitionsUsing` đếm số bản quy trình**, không đếm số bước. Một bản có hai bước cùng chờ một sự kiện tính là một.

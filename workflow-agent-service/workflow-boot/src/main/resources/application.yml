@@ -67,7 +67,7 @@ workflow:
     max-call-depth: ${WORKFLOW_SUBPROCESS_MAX_CALL_DEPTH:5}
     max-io-parameters: ${WORKFLOW_SUBPROCESS_MAX_IO_PARAMETERS:64}
   script-task:
-    enabled: ${WORKFLOW_SCRIPT_TASK_ENABLED:false}
+    enabled: ${WORKFLOW_SCRIPT_TASK_ENABLED:true}
     max-script-length: ${WORKFLOW_SCRIPT_TASK_MAX_SCRIPT_LENGTH:20000}
     max-inputs: ${WORKFLOW_SCRIPT_TASK_MAX_INPUTS:32}
     max-execution-millis: ${WORKFLOW_SCRIPT_TASK_MAX_EXECUTION_MILLIS:2000}
@@ -75,7 +75,9 @@ workflow:
     max-stack-depth: ${WORKFLOW_SCRIPT_TASK_MAX_STACK_DEPTH:64}
     instruction-check-interval: ${WORKFLOW_SCRIPT_TASK_INSTRUCTION_CHECK_INTERVAL:100}
   event-registry:
-    enabled: ${WORKFLOW_EVENT_REGISTRY_ENABLED:false}
+    enabled: ${WORKFLOW_EVENT_REGISTRY_ENABLED:true}
+    max-body-bytes: ${WORKFLOW_EVENT_REGISTRY_MAX_BODY_BYTES:262144}
+    idempotency-retention: ${WORKFLOW_EVENT_REGISTRY_IDEMPOTENCY_RETENTION:7d}
   runtime:
     environment: ${WORKFLOW_ENV:production}
   lock:

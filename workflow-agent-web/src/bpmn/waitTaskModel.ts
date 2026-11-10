@@ -33,3 +33,41 @@ export function waitTaskWarnings(form: { asyncLeave: boolean; hasTimeout: boolea
   }
   return warnings
 }
+
+interface TimeoutHost extends BpmnElement {
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+}
+
+interface TimeoutServices {
+  get(name: 'elementFactory'): {
+    createShape(attrs: { type: string; eventDefinitionType?: string }): BpmnElement
+  }
+  get(name: 'modeling'): {
+    createShape(
+      shape: BpmnElement,
+      position: { x: number; y: number },
+      target: BpmnElement,
+      hints?: { attach?: boolean },
+    ): BpmnElement
+  }
+}
+
+/** Attaches an interrupting timer boundary at the bottom right of a wait step: its "hạn chờ". */
+export function addTimeoutBoundary(modeler: { get(name: string): unknown }, host: TimeoutHost) {
+  const services = modeler as TimeoutServices
+  const boundary = services.get('elementFactory').createShape({
+    type: 'bpmn:BoundaryEvent',
+    eventDefinitionType: 'bpmn:TimerEventDefinition',
+  })
+  services
+    .get('modeling')
+    .createShape(
+      boundary,
+      { x: (host.x ?? 0) + (host.width ?? 100) - 18, y: (host.y ?? 0) + (host.height ?? 80) },
+      host,
+      { attach: true },
+    )
+}

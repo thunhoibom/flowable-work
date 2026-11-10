@@ -84,9 +84,10 @@ Cần team EIM trả lời:
   | 2 | `WF_INSTANCE` | `WF_ROOT` | Công việc | `/process-instances` |
   | 3 | `WF_ASSIGNMENT` | `WF_ROOT` | Phân công | `/assignment-rules` |
   | 4 | `WF_SERVICE` | `WF_ROOT` | Dịch vụ | `/services` |
-  | 5 | `WF_AGENT` | `WF_ROOT` | Agent | `/agents` |
-  | 6 | `WF_MEMBER` | `WF_ROOT` | Thành viên | `/access` |
-  | 7 | `WF_TENANT` | `WF_ROOT` | Tổ chức | `/tenants` |
+  | 5 | `WF_EVENT` | `WF_ROOT` | Sự kiện | `/events` |
+  | 6 | `WF_AGENT` | `WF_ROOT` | Agent | `/agents` |
+  | 7 | `WF_MEMBER` | `WF_ROOT` | Thành viên | `/access` |
+  | 8 | `WF_TENANT` | `WF_ROOT` | Tổ chức | `/tenants` |
 
 - [ ] **C3.** Privilege của node: gán `ACCESS` (hoặc `VIEW`) là đủ. Privilege **chỉ quyết định menu**, không quyết
   định quyền gọi API (quyền API theo vai trò, phần D).
@@ -111,9 +112,14 @@ Cần team EIM trả lời:
   | `WF_INSTANCE` | ✔ | ✔ | ✔ | ✔ |
   | `WF_ASSIGNMENT` | ✔ | ✔ | | |
   | `WF_SERVICE` | ✔ | ✔ | | |
+  | `WF_EVENT` | ✔ | ✔ | ✔ | ✔ |
   | `WF_AGENT` | ✔ | ✔ | | |
   | `WF_MEMBER` | ✔ | | | |
   | `WF_TENANT` | ✔ | | | |
+
+  `WF_EVENT` có cho `WF_OPERATOR` và `WF_VIEWER` (Đ1 lát 6): họ cần tab "Đang chờ" để xem công việc nào đang chờ
+  sự kiện, và xem thư viện sự kiện ở chế độ chỉ đọc. Tạo, lưu, phát hành và xóa sự kiện hay kênh vẫn chỉ dành cho
+  `WF_PLATFORM_ADMIN` và `WF_ADMIN`, cả trên web lẫn API.
 
   Gán thừa node (ví dụ `WF_SERVICE` cho `WF_VIEWER`) không mở thêm quyền: web vẫn ẩn màn hình vì vai trò không
   đủ, và API vẫn trả 403.

@@ -61,10 +61,12 @@ public class SubProcessDeploymentGuard {
             }
         }
         for (Element boundary : elements(document, "boundaryEvent")) {
-            if (embeddedIds.contains(boundary.getAttribute("attachedToRef"))
-                    && eventDefinitions(boundary).stream().noneMatch(SUBPROCESS_BOUNDARIES::contains)) {
+            List<String> definitions = eventDefinitions(boundary);
+            boolean eventRegistry = definitions.isEmpty() && hasEventType(boundary);
+            if (embeddedIds.contains(boundary.getAttribute("attachedToRef")) && !eventRegistry
+                    && definitions.stream().noneMatch(SUBPROCESS_BOUNDARIES::contains)) {
                 throw invalid("Boundary event " + boundary.getAttribute("id")
-                        + " on a subprocess must be a timer or error event");
+                        + " on a subprocess must be a timer, error or Event Registry event");
             }
         }
     }
@@ -119,6 +121,19 @@ public class SubProcessDeploymentGuard {
             }
         }
         return names;
+    }
+
+    /** A flowable:eventType inside the event's extensionElements: an Event Registry boundary (slice 5). */
+    private static boolean hasEventType(Element event) {
+        for (Element extensions : children(event, "extensionElements")) {
+            for (Node child = extensions.getFirstChild(); child != null; child = child.getNextSibling()) {
+                if (child instanceof Element element && "eventType".equals(element.getLocalName())
+                        && EventWaitBindingParser.FLOWABLE_NS.contains(element.getNamespaceURI())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static List<Element> children(Element parent, String localName) {

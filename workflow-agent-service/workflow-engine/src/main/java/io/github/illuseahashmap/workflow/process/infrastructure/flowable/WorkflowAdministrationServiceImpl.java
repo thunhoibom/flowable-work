@@ -1,6 +1,7 @@
 package io.github.illuseahashmap.workflow.process.infrastructure.flowable;
 
 import io.github.illuseahashmap.workflow.assignment.application.AssignmentRuleService;
+import io.github.illuseahashmap.workflow.eventregistry.application.port.EventReferenceRepository;
 import io.github.illuseahashmap.workflow.process.application.WorkflowAdministrationService;
 import io.github.illuseahashmap.workflow.process.application.WorkflowOperationAuditService;
 import io.github.illuseahashmap.workflow.process.application.dto.ProcessDefinitionDiagramView;
@@ -44,6 +45,7 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
     private final ProcessDraftRepository drafts;
     private final ProcessReleaseRepository releases;
     private final CallReferenceRepository callReferences;
+    private final EventReferenceRepository eventReferences;
 
     public WorkflowAdministrationServiceImpl(RepositoryService repositoryService,
                                              RuntimeService runtimeService,
@@ -57,10 +59,12 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
                                              WorkflowOperationAuditService auditService,
                                              ProcessDraftRepository drafts,
                                              ProcessReleaseRepository releases,
-                                             CallReferenceRepository callReferences) {
+                                             CallReferenceRepository callReferences,
+                                             EventReferenceRepository eventReferences) {
         this.drafts = drafts;
         this.releases = releases;
         this.callReferences = callReferences;
+        this.eventReferences = eventReferences;
         this.repositoryService = repositoryService;
         this.runtimeService = runtimeService;
         this.historyService = historyService;
@@ -192,6 +196,8 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
                     "Quy trình đang được gọi bởi: " + String.join(", ", callers));
         }
         assignmentRuleService.deleteByProcessDefinitionKey(processDefinitionKey);
+        // Found through act_re_procdef, so before the deployments go.
+        eventReferences.deleteForProcessKey(tenantId, processDefinitionKey);
         definitions.stream().map(ProcessDefinition::getDeploymentId).distinct()
                 .forEach(deploymentId -> repositoryService.deleteDeployment(deploymentId, true));
         drafts.delete(tenantId, processDefinitionKey);
@@ -238,6 +244,7 @@ public class WorkflowAdministrationServiceImpl implements WorkflowAdministration
         }
         assignmentRuleService.deleteByProcessDefinition(definition.getId());
         callReferences.deleteForDefinition(tenantId, definition.getId());
+        eventReferences.deleteForDefinition(tenantId, definition.getId());
         repositoryService.deleteDeployment(definition.getDeploymentId(), true);
         jdbcTemplate.update("""
                 DELETE FROM workflow_active_version

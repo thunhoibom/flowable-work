@@ -172,12 +172,26 @@ export interface CompleteTaskResult {
 }
 
 /** A step the instance is waiting at. Only manual wait steps for now. */
+export interface WaitCorrelation {
+  name: string
+  expression?: string | null
+  currentValue?: string | null
+  /** False when the expression is not a plain variable path: it is never re-run. */
+  evaluated: boolean
+}
+
 export interface ProcessWait {
-  kind: 'MANUAL'
+  kind: 'MANUAL' | 'EVENT'
   activityId: string
   activityName?: string
   executionId: string
   since?: string
+  elementType?: 'receiveTask' | 'intermediateCatchEvent' | 'boundaryEvent'
+  eventKey?: string | null
+  correlations?: WaitCorrelation[]
+  /** Null when it cannot be checked. */
+  correlationChanged?: boolean | null
+  dueDate?: string | null
 }
 
 export interface TriggerReceiveTaskRequest {

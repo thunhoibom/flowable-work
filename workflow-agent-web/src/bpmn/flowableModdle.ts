@@ -7,7 +7,8 @@ const flowableModdle = {
   types: [
     {
       name: 'AsyncLeave',
-      extends: ['bpmn:Activity'],
+      // Flowable reads asyncLeave on every FlowNode (BaseBpmnXMLConverter#parsAsyncLeave), events included.
+      extends: ['bpmn:Activity', 'bpmn:IntermediateCatchEvent', 'bpmn:BoundaryEvent'],
       properties: [{ name: 'asyncLeave', isAttr: true, type: 'Boolean' }],
     },
     {

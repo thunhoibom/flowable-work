@@ -1,5 +1,7 @@
 package io.github.illuseahashmap.workflow.process.infrastructure.flowable;
 
+import io.github.illuseahashmap.workflow.eventregistry.application.port.EventReferenceRepository;
+import io.github.illuseahashmap.workflow.eventregistry.domain.EventReference;
 import io.github.illuseahashmap.workflow.process.application.AgentBindingDeploymentValidator;
 import io.github.illuseahashmap.workflow.process.application.port.AgentTaskBindingParser;
 import io.github.illuseahashmap.workflow.process.application.port.CallReferenceRepository;
@@ -34,6 +36,7 @@ public class ProcessDeployer {
     private final CallActivityDeploymentGuard callActivityDeploymentGuard;
     private final EventRegistryDeploymentGuard eventRegistryDeploymentGuard;
     private final CallReferenceRepository callReferences;
+    private final EventReferenceRepository eventReferences;
     private final AgentTaskBindingParser agentTaskBindingParser;
     private final AgentBindingDeploymentValidator agentBindingDeploymentValidator;
     private final CurrentPrincipalProvider principalProvider;
@@ -44,9 +47,11 @@ public class ProcessDeployer {
                            CallActivityDeploymentGuard callActivityDeploymentGuard,
                            EventRegistryDeploymentGuard eventRegistryDeploymentGuard,
                            CallReferenceRepository callReferences,
+                           EventReferenceRepository eventReferences,
                            AgentTaskBindingParser agentTaskBindingParser,
                            AgentBindingDeploymentValidator agentBindingDeploymentValidator,
                            CurrentPrincipalProvider principalProvider) {
+        this.eventReferences = eventReferences;
         this.repositoryService = repositoryService;
         this.releases = releases;
         this.inspector = inspector;
@@ -60,18 +65,21 @@ public class ProcessDeployer {
         this.principalProvider = principalProvider;
     }
 
-    /** Every guard, then the deployment, then the call references of the new version. */
+    /** Every guard, then the deployment, then the call and event references of the new version. */
     public ProcessDefinition deployChecked(TenantContext.TenantInfo tenant, String key, String name, String xml) {
         inspector.check(key, xml);
         scriptTaskDeploymentGuard.check(xml);
         subProcessDeploymentGuard.check(xml);
-        eventRegistryDeploymentGuard.check(xml);
+        List<EventWaitBinding> eventWaits = eventRegistryDeploymentGuard.check(tenant, xml);
         List<CallActivityDeploymentGuard.Call> calls = callActivityDeploymentGuard.check(tenant, key, xml);
         agentBindingDeploymentValidator.validate(tenant.tenantCode(), agentTaskBindingParser.parse(xml));
         ProcessDefinition definition = deploy(tenant, key, name, xml);
         callReferences.replaceForDefinition(tenant.tenantId(), definition.getId(), calls.stream()
                 .map(call -> new CallReference(definition.getId(), key, definition.getVersion(),
                         call.activityId(), call.calledKey()))
+                .toList());
+        eventReferences.replaceForDefinition(tenant.tenantId(), definition.getId(), eventWaits.stream()
+                .map(wait -> new EventReference(definition.getId(), wait.activityId(), wait.eventKey()))
                 .toList());
         return definition;
     }

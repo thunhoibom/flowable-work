@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import io.github.illuseahashmap.workflow.eventregistry.application.port.EventReferenceRepository;
 import io.github.illuseahashmap.workflow.assignment.application.AssignmentRuleService;
 import io.github.illuseahashmap.workflow.process.application.WorkflowOperationAuditService;
 import io.github.illuseahashmap.workflow.process.application.dto.TerminateProcessRequest;
@@ -80,7 +81,7 @@ class SubProcessOperationsTest {
                 engine.getRuntimeService(), engine.getHistoryService(), mock(JdbcTemplate.class), executor,
                 null, reads, TENANT_PROVIDER, mock(AssignmentRuleService.class), auditService,
                 new InMemoryProcessRepositories.Drafts(), new InMemoryProcessRepositories.Releases(),
-                new InMemoryProcessRepositories.References());
+                new InMemoryProcessRepositories.References(), mock(EventReferenceRepository.class));
     }
 
     @AfterEach

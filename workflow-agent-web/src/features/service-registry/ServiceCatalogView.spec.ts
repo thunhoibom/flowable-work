@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import ServiceCatalogView from './ServiceCatalogView.vue'
 import { confirmAction } from '@/utils/confirmation'
 import { serviceCatalogApi } from './api'
+import { tableStubs } from '@/testing/tableStubs'
 
 vi.mock('./api', () => ({
   serviceCatalogApi: {
@@ -70,7 +71,10 @@ const unpublishedOperation = {
 function mountView() {
   return mount(ServiceCatalogView, {
     global: {
+      directives: { loading: {} },
       stubs: {
+        ...tableStubs,
+        'el-tag': slot,
         'el-form': slot,
         'el-form-item': slot,
         'el-dialog': { template: '<div><slot /><slot name="footer" /></div>' },
@@ -101,8 +105,14 @@ function mountView() {
   })
 }
 
+async function openOperations(wrapper: ReturnType<typeof mountView>) {
+  await wrapper.get('[data-action="open-operations"][data-service="crm"]').trigger('click')
+  await flushPromises()
+}
+
 describe('ServiceCatalogView', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     vi.mocked(serviceCatalogApi.list).mockResolvedValue([
       { serviceKey: 'crm', name: 'CRM', operations: [publishedOperation, unpublishedOperation] },
     ])
@@ -121,6 +131,7 @@ describe('ServiceCatalogView', () => {
   it('loads a draft operation and locks a path parameter', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await openOperations(wrapper)
     await wrapper.get('button[data-operation="createLead"]').trigger('click')
     await flushPromises()
 
@@ -134,6 +145,7 @@ describe('ServiceCatalogView', () => {
   it('shows the parameter editors under the operation form', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await openOperations(wrapper)
     expect(wrapper.text()).not.toContain('Đầu vào')
     await wrapper.get('[data-action="add-operation"]').trigger('click')
     await flushPromises()
@@ -200,6 +212,16 @@ describe('ServiceCatalogView', () => {
     })
   })
 
+  it('publishes a service from its row without opening the operations modal', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Phát hành dịch vụ')
+    await wrapper.get('[data-action="publish"][data-service="crm"]').trigger('click')
+    await flushPromises()
+    expect(serviceCatalogApi.publish).toHaveBeenCalledWith('crm')
+    expect(wrapper.text()).not.toContain('Phát hành dịch vụ')
+  })
+
   it('shows an empty catalog after loading', async () => {
     vi.mocked(serviceCatalogApi.list).mockResolvedValue([])
     const wrapper = mountView()
@@ -207,17 +229,24 @@ describe('ServiceCatalogView', () => {
     expect(wrapper.text()).toContain('Chưa có dịch vụ')
   })
 
-  it('keeps the selected service when the search matches nothing', async () => {
+  it('filters the table and says when the search matches nothing', async () => {
     const wrapper = mountView()
     await flushPromises()
+    expect(wrapper.find('[data-column="STT"]').text()).toBe('1')
+    expect(wrapper.text()).toContain('Cần phát hành')
+
     await wrapper.get('input[aria-label="Tìm dịch vụ"]').setValue('zzz')
     expect(wrapper.text()).toContain('Không có dịch vụ khớp')
-    expect(wrapper.text()).toContain('CRM')
+    expect(wrapper.find('[data-action="open-operations"]').exists()).toBe(false)
+
+    await wrapper.get('input[aria-label="Tìm dịch vụ"]').setValue('CR')
+    expect(wrapper.find('[data-action="open-operations"]').exists()).toBe(true)
   })
 
   it('does not save when the url or api key header is missing', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await openOperations(wrapper)
     await wrapper.get('[data-action="add-operation"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-field="operation-key"]').setValue('createLead')
@@ -237,14 +266,15 @@ describe('ServiceCatalogView', () => {
   it('publishes a blank new operation and blocks a dirty form', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await openOperations(wrapper)
     await wrapper.get('[data-action="add-operation"]').trigger('click')
-    await wrapper.get('[data-action="publish"]').trigger('click')
+    await wrapper.get('[data-action="publish-operations"]').trigger('click')
     expect(serviceCatalogApi.publish).toHaveBeenCalledWith('crm')
 
     await wrapper.get('button[data-operation="createLead"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-field="url"]').setValue('https://changed.example')
-    await wrapper.get('[data-action="publish"]').trigger('click')
+    await wrapper.get('[data-action="publish-operations"]').trigger('click')
     expect(serviceCatalogApi.publish).toHaveBeenCalledTimes(1)
     expect(ElMessage.warning).toHaveBeenCalledWith('Lưu thao tác trước khi phát hành')
 
@@ -259,6 +289,7 @@ describe('ServiceCatalogView', () => {
   it('deletes an operation only after confirmation and drops it from the draft list', async () => {
     const wrapper = mountView()
     await flushPromises()
+    await openOperations(wrapper)
     await wrapper.get('[data-operation-key="findLead"]').trigger('click')
     expect(serviceCatalogApi.deleteOperation).not.toHaveBeenCalled()
 

@@ -1,4 +1,9 @@
-import { agentsEnabled, callActivityEnabled, scriptTasksEnabled } from '@/config/product'
+import {
+  agentsEnabled,
+  callActivityEnabled,
+  eventsEnabled,
+  scriptTasksEnabled,
+} from '@/config/product'
 
 interface PaletteEntry {
   group: string
@@ -66,6 +71,29 @@ export class WorkflowPaletteProvider {
         className: 'bpmn-icon-receive-task',
         title: 'Thêm bước chờ',
         action: { dragstart: createWaitTask, click: createWaitTask },
+      }
+
+      const createEventWait = (event: Event) => {
+        const businessObject = this.bpmnFactory.create('bpmn:IntermediateCatchEvent', {
+          asyncLeave: true,
+          extensionElements: this.bpmnFactory.create('bpmn:ExtensionElements', {
+            values: [this.bpmnFactory.create('flowable:EventType', { body: '' })],
+          }),
+        })
+        const shape = this.elementFactory.createShape({
+          type: 'bpmn:IntermediateCatchEvent',
+          businessObject,
+        })
+        this.create.start(event, shape)
+      }
+
+      if (eventsEnabled) {
+        entries['create.event-wait'] = {
+          group: 'event',
+          className: 'bpmn-icon-intermediate-event-none',
+          title: 'Chờ sự kiện',
+          action: { dragstart: createEventWait, click: createEventWait },
+        }
       }
 
       const createScriptTask = (event: Event) => {

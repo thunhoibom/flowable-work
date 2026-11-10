@@ -2,6 +2,7 @@ package io.github.illuseahashmap.workflow.process.infrastructure.flowable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.endsWith;
@@ -12,12 +13,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.illuseahashmap.workflow.process.application.WorkflowOperationAuditService;
+import io.github.illuseahashmap.workflow.process.application.dto.ProcessWaitView;
 import io.github.illuseahashmap.workflow.process.application.dto.TriggerReceiveTaskRequest;
+import io.github.illuseahashmap.workflow.process.application.dto.WaitCorrelationView;
 import io.github.illuseahashmap.workflow.process.infrastructure.lock.ProcessInstanceTransactionExecutor;
 import io.github.illuseahashmap.workflow.shared.context.TenantContext;
 import io.github.illuseahashmap.workflow.shared.context.TenantProvider;
 import io.github.illuseahashmap.workflow.shared.exception.BusinessException;
 import io.github.illuseahashmap.workflow.shared.exception.ErrorCode;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -54,7 +58,24 @@ class ReceiveTaskOperationServiceImplTest {
         deploy("eventWait", """
                 <receiveTask id="wait"><extensionElements>
                   <flowable:eventType>paymentReceived</flowable:eventType>
+                  <flowable:eventCorrelationParameter name="orderId" value="${orderId}"/>
                 </extensionElements></receiveTask>""");
+        deploy("mixedWaits", """
+                <parallelGateway id="fork"/>
+                <receiveTask id="manualStep"/>
+                <receiveTask id="wait" name="Chờ thanh toán"><extensionElements>
+                  <flowable:eventType>paymentReceived</flowable:eventType>
+                  <flowable:eventCorrelationParameter name="orderId" value="${orderId}"/>
+                </extensionElements></receiveTask>
+                <boundaryEvent id="timeout" attachedToRef="wait" cancelActivity="true">
+                  <timerEventDefinition><timeDuration>PT1H</timeDuration></timerEventDefinition>
+                </boundaryEvent>
+                <intermediateCatchEvent id="message"><messageEventDefinition messageRef="m"/></intermediateCatchEvent>
+                <userTask id="late"/>
+                <sequenceFlow id="m0" sourceRef="s" targetRef="fork"/>
+                <sequenceFlow id="m1" sourceRef="fork" targetRef="manualStep"/>
+                <sequenceFlow id="m2" sourceRef="fork" targetRef="message"/>
+                <sequenceFlow id="m3" sourceRef="timeout" targetRef="late"/>""");
         deploy("parallelWait", """
                 <receiveTask id="wait">
                   <multiInstanceLoopCharacteristics isSequential="false">
@@ -73,6 +94,7 @@ class ReceiveTaskOperationServiceImplTest {
                 <?xml version="1.0" encoding="UTF-8"?>
                 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
                              xmlns:flowable="http://flowable.org/bpmn" targetNamespace="t">
+                  <message id="m" name="m"/>
                   <process id="%s" isExecutable="true">
                     <startEvent id="s"/>%s<userTask id="after"/>
                     <sequenceFlow id="f1" sourceRef="s" targetRef="wait"/>
@@ -82,7 +104,7 @@ class ReceiveTaskOperationServiceImplTest {
     }
 
     private static ProcessInstance start(String key) {
-        return engine.getRuntimeService().startProcessInstanceByKeyAndTenantId(key, Map.of(), TENANT);
+        return engine.getRuntimeService().startProcessInstanceByKeyAndTenantId(key, Map.of("orderId", "SO-1"), TENANT);
     }
 
     private static boolean waiting(ProcessInstance instance) {
@@ -100,7 +122,7 @@ class ReceiveTaskOperationServiceImplTest {
         ProcessInstanceTransactionExecutor executor = mock(ProcessInstanceTransactionExecutor.class);
         when(executor.execute(anyString(), any())).thenAnswer(call -> ((Supplier<?>) call.getArgument(1)).get());
         service = new ReceiveTaskOperationServiceImpl(engine.getRuntimeService(), engine.getRepositoryService(),
-                engine.getHistoryService(), executor, TENANT_PROVIDER, audit);
+                engine.getHistoryService(), engine.getManagementService(), executor, TENANT_PROVIDER, audit);
     }
 
     private static TriggerReceiveTaskRequest request(ProcessInstance instance, String executionId,
@@ -109,7 +131,7 @@ class ReceiveTaskOperationServiceImplTest {
     }
 
     @Test
-    void listsManualWaitsOnly() {
+    void listsManualAndEventWaitsButNotAgentTasks() {
         ProcessInstance manual = start("manual");
         ProcessInstance agent = start("agentLike");
         ProcessInstance event = start("eventWait");
@@ -122,7 +144,8 @@ class ReceiveTaskOperationServiceImplTest {
             assertThat(wait.since()).isNotNull();
         });
         assertThat(service.waits(agent.getId())).isEmpty();
-        assertThat(service.waits(event.getId())).isEmpty();
+        assertThat(service.waits(event.getId())).singleElement()
+                .satisfies(wait -> assertThat(wait.kind()).isEqualTo("EVENT"));
     }
 
     @Test
@@ -177,5 +200,28 @@ class ReceiveTaskOperationServiceImplTest {
         // Definitions exist only for TENANT: the tenant filter in the service relies on this.
         assertThatThrownBy(() -> engine.getRuntimeService().startProcessInstanceByKey("manual"))
                 .isInstanceOf(FlowableObjectNotFoundException.class);
+    }
+
+    @Test
+    void listsManualAndEventWaitsSideBySideWithTheirTimeout() {
+        ProcessInstance instance = start("mixedWaits");
+
+        List<ProcessWaitView> waits = service.waits(instance.getId());
+
+        assertThat(waits).extracting(ProcessWaitView::activityId, ProcessWaitView::kind)
+                .containsExactlyInAnyOrder(tuple("manualStep", "MANUAL"), tuple("wait", "EVENT"));
+        ProcessWaitView event = waits.stream().filter(wait -> wait.kind().equals("EVENT")).findFirst().orElseThrow();
+        assertThat(event.activityName()).isEqualTo("Chờ thanh toán");
+        assertThat(event.elementType()).isEqualTo("receiveTask");
+        assertThat(event.eventKey()).isEqualTo("paymentReceived");
+        assertThat(event.correlations()).singleElement()
+                .isEqualTo(new WaitCorrelationView("orderId", "${orderId}", "SO-1", true));
+        assertThat(event.correlationChanged()).isFalse();
+        assertThat(event.dueDate()).isAfter(OffsetDateTime.now().plusMinutes(50));
+        assertThat(engine.getRuntimeService().createEventSubscriptionQuery()
+                .processInstanceId(instance.getId()).eventType("message").count()).isEqualTo(1);
+
+        assertThatThrownBy(() -> service.trigger(request(instance, null, Map.of())))
+                .hasMessageContaining("không phải bước chờ thủ công");
     }
 }

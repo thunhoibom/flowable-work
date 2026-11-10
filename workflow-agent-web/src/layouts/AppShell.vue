@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Route,
   Cable,
+  RadioTower,
   ScrollText,
   UsersRound,
   UserRound,
@@ -55,6 +56,7 @@ const navigationIcons: Record<NavigationIcon, Component> = {
   assignments: Route,
   agents: Bot,
   services: Cable,
+  events: RadioTower,
   access: UsersRound,
   tenants: Building2,
 }

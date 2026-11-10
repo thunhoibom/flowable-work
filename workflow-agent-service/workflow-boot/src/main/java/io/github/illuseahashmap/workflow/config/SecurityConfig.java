@@ -47,7 +47,14 @@ public class SecurityConfig {
                                 && ("/auth/login".equals(request.getRequestURI())
                                 || request.getRequestURI().startsWith("/service-callbacks/")))
                         .ignoringRequestMatchers(request -> StringUtils.hasText(
-                                request.getHeader(ServiceTokenAuthenticationFilter.TOKEN_HEADER))))
+                                request.getHeader(ServiceTokenAuthenticationFilter.TOKEN_HEADER)))
+                        // Channel webhooks called with a bearer token: a header cannot be forged
+                        // cross-site, a cookie can, so cookie-authenticated posts still need CSRF.
+                        .ignoringRequestMatchers(request -> "POST".equalsIgnoreCase(request.getMethod())
+                                && request.getRequestURI().startsWith("/platform-api/channel-definitions/")
+                                && StringUtils.startsWithIgnoreCase(
+                                        request.getHeader(org.springframework.http.HttpHeaders.AUTHORIZATION),
+                                        "Bearer ")))
                 .sessionManagement(configurer -> configurer
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                         .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))

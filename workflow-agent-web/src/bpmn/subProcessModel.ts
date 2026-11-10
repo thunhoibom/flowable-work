@@ -28,6 +28,8 @@ const UNSUPPORTED_REPLACEMENTS = /transaction|ad-hoc/
 const CALL_ACTIVITY_REPLACEMENT = /call-activity/
 const EVENT_SUBPROCESS_STARTS = /-(timer|error)-start$/
 const SUBPROCESS_BOUNDARIES = /-(timer|error)-boundary$/
+/** Added by EventWaitReplaceMenuProvider; the backend accepts it on embedded subprocesses too. */
+const EVENT_REGISTRY_BOUNDARY = 'replace-with-event-registry-boundary'
 
 function text(value: unknown) {
   if (!value) return ''
@@ -146,7 +148,7 @@ export function filterReplaceEntries<T>(
         return EVENT_SUBPROCESS_STARTS.test(id)
       }
       if (object?.$type === 'bpmn:BoundaryEvent' && isEmbeddedSubProcess(attachedTo)) {
-        return SUBPROCESS_BOUNDARIES.test(id)
+        return SUBPROCESS_BOUNDARIES.test(id) || id === EVENT_REGISTRY_BOUNDARY
       }
       return true
     }),

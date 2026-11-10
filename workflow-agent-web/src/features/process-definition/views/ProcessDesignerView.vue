@@ -18,7 +18,7 @@ import 'bpmn-js/dist/assets/diagram-js.css'
 import 'bpmn-js/dist/assets/bpmn-js.css'
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css'
 import { getErrorMessage } from '@/api/http'
-import { agentsEnabled } from '@/config/product'
+import { agentsEnabled, eventsEnabled } from '@/config/product'
 import flowableModdle from '@/bpmn/flowableModdle'
 import workflowModdle from '@/bpmn/workflowModdle'
 import workflowPaletteModule from '@/bpmn/workflowPaletteModule'
@@ -42,7 +42,9 @@ import {
 import { showsApprovalMode } from '../serviceTaskPanel'
 import ScriptTaskConfigPanel from '../components/ScriptTaskConfigPanel.vue'
 import ReceiveTaskConfigPanel from '../components/ReceiveTaskConfigPanel.vue'
-import { isManualWaitElement } from '@/bpmn/waitTaskModel'
+import { eventWaitKind, type EventWaitEvent } from '@/bpmn/eventWaitModel'
+import EventWaitConfigPanel from '../components/EventWaitConfigPanel.vue'
+import { eventRegistryApi } from '@/features/event-registry'
 import {
   fromInParameters,
   scriptTaskWarnings,
@@ -156,7 +158,19 @@ const selectedType = computed(
 const isAgentTask = computed(() => isAgentTaskElement(selectedBusinessObject.value))
 const isServiceTask = computed(() => selectedType.value === 'bpmn:ServiceTask')
 const isScriptTask = computed(() => selectedType.value === 'bpmn:ScriptTask')
-const isManualWait = computed(() => isManualWaitElement(selectedBusinessObject.value))
+// Bumped on every diagram command: replacing an element writes its extensions after selecting it.
+const diagramRevision = ref(0)
+const eventWaitKindOfSelection = computed(() =>
+  diagramRevision.value >= 0 ? eventWaitKind(selectedBusinessObject.value) : undefined,
+)
+const isWaitTask = computed(() => selectedType.value === 'bpmn:ReceiveTask' && !isAgentTask.value)
+const isEventWaitEvent = computed(
+  () =>
+    eventWaitKindOfSelection.value === 'intermediateCatch' ||
+    eventWaitKindOfSelection.value === 'boundary',
+)
+const publishedEvents = ref<EventWaitEvent[]>([])
+const eventWaitReadOnly = computed(() => readOnly.value || !eventsEnabled)
 const isTask = computed(() =>
   [
     'bpmn:Task',
@@ -337,6 +351,16 @@ function resetSelection(element?: BpmnElement) {
       listeners.taskComplete.push(value)
   }
   triggerRef(selectedBusinessObject)
+}
+
+async function loadPublishedEvents() {
+  try {
+    const events = await eventRegistryApi.events()
+    publishedEvents.value = events.filter((event) => event.publishedVersion)
+  } catch {
+    publishedEvents.value = []
+    ElMessage.warning('Không tải được danh sách sự kiện, bước chờ sự kiện tạm thời chưa chọn được')
+  }
 }
 
 async function loadPublishedServices(
@@ -1434,6 +1458,7 @@ onMounted(async () => {
   })
   modeler.value.on('selection.changed', (event) => resetSelection(event.newSelection?.[0]))
   modeler.value.on('commandStack.changed', () => {
+    diagramRevision.value++
     if (!importing.value) dirty.value = true
   })
   modeler.value.on('shape.added', (event) => {
@@ -1451,6 +1476,7 @@ onMounted(async () => {
   canvasResizeObserver.observe(canvasElement.value)
   window.addEventListener('beforeunload', beforeUnload)
   if (agentsEnabled) await loadAgentVersions()
+  if (eventsEnabled) void loadPublishedEvents()
 
   const key = String(route.query.key || '')
   const name = String(route.query.name || key)
@@ -1780,10 +1806,28 @@ watch(viewingVersion, () => resetSelection())
               @apply="applyScriptTask()"
             />
 
+            <el-alert
+              v-if="!eventsEnabled && eventWaitKindOfSelection"
+              title="Tính năng sự kiện chưa bật, bước này sẽ bị từ chối khi phát hành"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+
             <ReceiveTaskConfigPanel
-              v-if="isManualWait && selectedElement && modeler"
+              v-if="isWaitTask && selectedElement && modeler"
               :element="selectedElement"
               :modeler="modeler"
+              :events="publishedEvents"
+              :read-only="eventWaitKindOfSelection ? eventWaitReadOnly : readOnly"
+            />
+
+            <EventWaitConfigPanel
+              v-if="isEventWaitEvent && selectedElement && modeler"
+              :element="selectedElement"
+              :modeler="modeler"
+              :events="publishedEvents"
+              :read-only="eventWaitReadOnly"
             />
 
             <div v-if="!isAgentTask && (isTask || isSequenceFlow)" class="property-block">

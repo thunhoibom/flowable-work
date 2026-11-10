@@ -158,7 +158,7 @@ describe('filterReplaceEntries', () => {
     ])
   })
 
-  it('limits subprocess boundaries to timer and error', () => {
+  it('limits subprocess boundaries to timer, error and Event Registry', () => {
     const boundary = {
       businessObject: {
         $type: 'bpmn:BoundaryEvent',
@@ -171,6 +171,7 @@ describe('filterReplaceEntries', () => {
           boundary,
           entries(
             'replace-with-message-boundary',
+            'replace-with-event-registry-boundary',
             'replace-with-timer-boundary',
             'replace-with-non-interrupting-timer-boundary',
             'replace-with-error-boundary',
@@ -179,6 +180,7 @@ describe('filterReplaceEntries', () => {
         ),
       ),
     ).toEqual([
+      'replace-with-event-registry-boundary',
       'replace-with-timer-boundary',
       'replace-with-non-interrupting-timer-boundary',
       'replace-with-error-boundary',

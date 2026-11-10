@@ -16,6 +16,12 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ triggered: [] }>()
 
+const ELEMENT_LABELS: Record<NonNullable<ProcessWait['elementType']>, string> = {
+  receiveTask: 'Bước chờ',
+  intermediateCatchEvent: 'Sự kiện chờ',
+  boundaryEvent: 'Sự kiện gắn biên',
+}
+
 const waitsQuery = useQuery({
   queryKey: computed(() =>
     queryKeys.processInstanceWaits(props.tenantCode, props.processInstanceId),
@@ -67,21 +73,78 @@ function submit() {
 </script>
 
 <template>
-  <div v-loading="waitsQuery.isFetching.value">
-    <el-table :data="waits" height="470" empty-text="Không có bước chờ thủ công nào">
-      <el-table-column label="Bước" min-width="180" show-overflow-tooltip>
-        <template #default="{ row }">{{ row.activityName || row.activityId }}</template>
-      </el-table-column>
-      <el-table-column prop="activityId" label="Mã bước" min-width="150" />
-      <el-table-column label="Đang chờ từ" min-width="170">
-        <template #default="{ row }">{{ formatDateTime(row.since) }}</template>
-      </el-table-column>
-      <el-table-column v-if="canOperate" label="Thao tác" width="130" fixed="right">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="open(row)">Tiếp tục</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+  <div v-loading="waitsQuery.isFetching.value" class="process-waits">
+    <p v-if="!waits.length && !waitsQuery.isFetching.value" class="waits-empty">
+      Không có bước nào đang chờ
+    </p>
+    <ul v-else class="wait-list">
+      <li
+        v-for="wait in waits"
+        :key="wait.executionId + wait.activityId"
+        class="wait-item"
+        :class="wait.kind === 'EVENT' ? 'wait-event' : 'wait-manual'"
+      >
+        <div class="wait-head">
+          <div>
+            <strong>{{ wait.activityName || wait.activityId }}</strong>
+            <small class="wait-id">{{ wait.activityId }}</small>
+          </div>
+          <el-button
+            v-if="wait.kind === 'MANUAL' && canOperate"
+            class="wait-continue"
+            link
+            type="primary"
+            @click="open(wait)"
+          >
+            Tiếp tục
+          </el-button>
+        </div>
+        <div class="wait-meta">
+          <el-tag v-if="wait.kind === 'EVENT'" size="small" type="primary" class="wait-badge">
+            Chờ sự kiện <code>{{ wait.eventKey }}</code>
+          </el-tag>
+          <el-tag v-else size="small" type="info">Chờ tiếp tục thủ công</el-tag>
+          <span v-if="wait.kind === 'EVENT' && wait.elementType">
+            {{ ELEMENT_LABELS[wait.elementType] }}
+          </span>
+          <span>Từ {{ formatDateTime(wait.since) }}</span>
+          <span v-if="wait.dueDate">Hạn chờ {{ formatDateTime(wait.dueDate) }}</span>
+        </div>
+        <table v-if="wait.kind === 'EVENT' && wait.correlations?.length" class="wait-correlations">
+          <thead>
+            <tr>
+              <th>Trường tương quan</th>
+              <th>Biểu thức</th>
+              <th>Giá trị hiện tại</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="correlation in wait.correlations" :key="correlation.name">
+              <td>
+                <code>{{ correlation.name }}</code>
+              </td>
+              <td>
+                <code>{{ correlation.expression }}</code>
+              </td>
+              <td>
+                <template v-if="correlation.evaluated">{{
+                  correlation.currentValue ?? '—'
+                }}</template>
+                <em v-else class="not-evaluated">không tính lại</em>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <el-alert
+          v-if="wait.kind === 'EVENT' && wait.correlationChanged === true"
+          class="wait-changed"
+          title="Biến đã đổi sau khi bắt đầu chờ. Sự kiện cần mang giá trị cũ để khớp"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+      </li>
+    </ul>
 
     <el-dialog v-model="dialogVisible" title="Tiếp tục bước chờ" width="520px">
       <el-form label-position="top">
@@ -110,3 +173,73 @@ function submit() {
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.process-waits {
+  min-height: 120px;
+}
+
+.waits-empty {
+  color: var(--el-text-color-secondary);
+  text-align: center;
+  padding: 32px 0;
+}
+
+.wait-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wait-item {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.wait-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.wait-id {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+}
+
+.wait-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+}
+
+.wait-correlations {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.wait-correlations th,
+.wait-correlations td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  text-align: left;
+}
+
+.not-evaluated {
+  color: var(--el-text-color-secondary);
+}
+
+.wait-changed {
+  margin-top: 8px;
+}
+</style>

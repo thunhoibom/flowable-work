@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class ScriptTaskProperties {
 
     /** Whether deployments may contain a script task. Deployed script tasks always run sandboxed. */
-    private boolean enabled = false;
+    private boolean enabled = true;
     private int maxScriptLength = 20000;
     private int maxInputs = 32;
     private long maxExecutionMillis = 2000L;

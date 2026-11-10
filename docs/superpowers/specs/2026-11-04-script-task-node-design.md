@@ -37,7 +37,7 @@ Có:
 - `scriptTask` với `scriptFormat="javascript"`, đầu vào qua `<flowable:in>`, kết quả qua `flowable:resultVariable`.
 - Behavior riêng chạy Rhino với sandbox. Behavior này áp dụng cho mọi `scriptTask`, kể cả khi tính năng đang tắt.
 - Kiểm tra lúc deploy: chặn script sai dạng, script listener, Groovy và các ngôn ngữ khác.
-- Cờ `workflow.script-task.enabled`, mặc định `false`.
+- Cờ `workflow.script-task.enabled`, mặc định `true` (đổi ngày 2026-11-10).
 - Palette, panel cấu hình và nhãn trên designer.
 
 Ngoài phạm vi:
@@ -167,7 +167,7 @@ Lỗi khi tính `<flowable:in>` giữ nguyên exception của Flowable.
 
 | Khóa | Mặc định | Biến môi trường |
 |---|---|---|
-| `enabled` | `false` | `WORKFLOW_SCRIPT_TASK_ENABLED` |
+| `enabled` | `true` | `WORKFLOW_SCRIPT_TASK_ENABLED` |
 | `max-script-length` | `20000` | `WORKFLOW_SCRIPT_TASK_MAX_SCRIPT_LENGTH` |
 | `max-inputs` | `32` | `WORKFLOW_SCRIPT_TASK_MAX_INPUTS` |
 | `max-execution-millis` | `2000` | `WORKFLOW_SCRIPT_TASK_MAX_EXECUTION_MILLIS` |
@@ -185,7 +185,7 @@ Endpoint deploy giữ nguyên `hasAnyRole('SERVICE', 'WF_PLATFORM_ADMIN', 'WF_AD
 
 ## Giao diện
 
-- `VITE_SCRIPT_TASKS_ENABLED=true` mới hiện mục palette «Thêm bước script». Mục này tạo `bpmn:ScriptTask` với `scriptFormat="javascript"`. Backend vẫn là nơi quyết định cuối cùng.
+- Mục palette «Thêm bước script». Mục này hiện trừ khi `VITE_SCRIPT_TASKS_ENABLED=false`, và tạo `bpmn:ScriptTask` với `scriptFormat="javascript"`. Backend vẫn là nơi quyết định cuối cùng.
 - Nhãn loại phần tử: `bpmn:ScriptTask` là «Chạy script».
 - `bpmn:ScriptTask` được tính là task, nên khối «Luật chuyển» và listener vẫn hiện. «Loại bước» bị ẩn, giống Service Task.
 - Panel `ScriptTaskConfigPanel`:

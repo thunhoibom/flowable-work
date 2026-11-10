@@ -133,7 +133,26 @@ class SubProcessDeploymentGuardTest {
         rejects(sub("sub", "") + """
                 <boundaryEvent id="msg" attachedToRef="sub">
                   <messageEventDefinition messageRef="m"/>
-                </boundaryEvent>""", "timer or error");
+                </boundaryEvent>""", "timer, error or Event Registry");
+    }
+
+    @Test
+    void acceptsAnEventRegistryBoundaryOnASubProcess() {
+        String body = sub("sub", "") + """
+                <boundaryEvent id="cancelled" attachedToRef="sub" xmlns:flowable="http://flowable.org/bpmn">
+                  <extensionElements><flowable:eventType>orderCancelled</flowable:eventType></extensionElements>
+                </boundaryEvent>""";
+
+        assertThatCode(() -> guard.check(bpmn(body))).doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsAMessageBoundaryOnASubProcessEvenWithAnEventType() {
+        rejects(sub("sub", "") + """
+                <boundaryEvent id="msg" attachedToRef="sub" xmlns:flowable="http://flowable.org/bpmn">
+                  <extensionElements><flowable:eventType>orderCancelled</flowable:eventType></extensionElements>
+                  <messageEventDefinition messageRef="m"/>
+                </boundaryEvent>""", "timer, error or Event Registry");
     }
 
     @Test

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppShell from '@/layouts/AppShell.vue'
-import { agentsEnabled } from '@/config/product'
+import { agentsEnabled, eventsEnabled } from '@/config/product'
 import { hasAccess, readAuthSession, ROLES } from '@/features/auth'
 
 const router = createRouter({
@@ -79,6 +79,26 @@ const router = createRouter({
             title: 'Dịch vụ',
             requiredAnyRoles: ROLES.designers,
             navigation: { menuCode: 'WF_SERVICE', label: 'Dịch vụ', icon: 'services', order: 35 },
+          },
+        },
+        {
+          path: 'events',
+          name: 'event-registry',
+          component: () => import('@/features/event-registry/EventRegistryView.vue'),
+          meta: {
+            title: 'Sự kiện',
+            // Operators and viewers read the library and the "Đang chờ" tab; editing stays with designers.
+            requiredAnyRoles: ROLES.anyUser,
+            ...(eventsEnabled
+              ? {
+                  navigation: {
+                    menuCode: 'WF_EVENT',
+                    label: 'Sự kiện',
+                    icon: 'events' as const,
+                    order: 36,
+                  },
+                }
+              : {}),
           },
         },
         {
@@ -174,6 +194,9 @@ router.beforeEach((to) => {
     return firstAuthorizedRoute(session)
   }
   if (authenticated && to.name === 'agent-management' && !agentsEnabled) {
+    return firstAuthorizedRoute(session)
+  }
+  if (authenticated && to.name === 'event-registry' && !eventsEnabled) {
     return firstAuthorizedRoute(session)
   }
   if (authenticated && !hasAccess(session, to.meta)) {

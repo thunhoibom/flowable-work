@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import io.github.illuseahashmap.workflow.eventregistry.application.port.EventReferenceRepository;
 import io.github.illuseahashmap.workflow.assignment.application.AssignmentRuleService;
 import io.github.illuseahashmap.workflow.process.application.WorkflowOperationAuditService;
 import io.github.illuseahashmap.workflow.process.domain.ProcessDraft;
@@ -58,7 +59,8 @@ class WorkflowAdministrationDeleteTest {
         service = new WorkflowAdministrationServiceImpl(engine.getRepositoryService(), engine.getRuntimeService(),
                 engine.getHistoryService(), mock(JdbcTemplate.class), mock(ProcessInstanceTransactionExecutor.class),
                 null, null, () -> new TenantContext.TenantInfo(TENANT, "del", "Del"), rules,
-                mock(WorkflowOperationAuditService.class), drafts, releases, callReferences);
+                mock(WorkflowOperationAuditService.class), drafts, releases, callReferences,
+                mock(EventReferenceRepository.class));
     }
 
     private static ProcessDefinition deploy(String key) {
